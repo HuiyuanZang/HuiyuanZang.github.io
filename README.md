@@ -2,7 +2,7 @@
 
 ## Table of Contents
 
-1. Nvidia Jetson
+1 Nvidia Jetson
 
 1.1 Nvidia Jetson cuda
 
