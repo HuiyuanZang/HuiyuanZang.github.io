@@ -1,6 +1,5 @@
-
-
-
+# Update /etc/apt/sources.list for Jeston Nano
+![](../../../asset/nvidia/img/nvidia-icon.png)
 
 When you do `$ sudo apt-get update` on Jetson nano, you possibly meet the update errors like: 
 

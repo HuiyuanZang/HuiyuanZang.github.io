@@ -14,7 +14,7 @@ sudo apt-get upgrade
 # install the dependencies
 # sudo apt-get install -y build-essential cmake git unzip pkg-config zlib1g-dev
 # I already manually compiled and installed cmake 3.23.1, no need install cmake 
-sudo apt-get install -y build-essential  git unzip pkg-config zlib1g-dev
+
 sudo apt-get install -y libjpeg-dev libjpeg8-dev libjpeg-turbo8-dev libpng-dev libtiff-dev
 sudo apt-get install -y libavcodec-dev libavformat-dev libswscale-dev libglew-dev
 sudo apt-get install -y libgtk2.0-dev libgtk-3-dev libcanberra-gtk*
