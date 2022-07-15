@@ -1,14 +1,34 @@
-# 1. Running OpenCV on Nvidia Jetson Nano with HW acceleration
-![](../../../asset/opencv/img/openCV_logo.png)
-## 1.1. Table of Contents
+# Running OpenCV on Nvidia Jetson Nano with HW acceleration
 
+![](../../../asset/nvidia/img/nvidia-icon.png) ![](../../../asset/opencv/img/openCV_logo.png)
+
+## 1.Table of Contents
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
+<!-- code_chunk_output -->
 
+- [Running OpenCV on Nvidia Jetson Nano with HW acceleration](#running-opencv-on-nvidia-jetson-nano-with-hw-acceleration)
+  - [1.Table of Contents](#1table-of-contents)
+  - [2. Environment and Version](#2-environment-and-version)
+  - [3. Prerequisite](#3-prerequisite)
+    - [3.1. Compiling OpenCV with CUDA supported on Jetson Nano](#31-compiling-opencv-with-cuda-supported-on-jetson-nano)
+      - [3.1.1. Enlarge memory swap](#311-enlarge-memory-swap)
+      - [3.1.2. Install all Dependencies](#312-install-all-dependencies)
+        - [3.1.2.1. Want OpenCV to support Qt5?](#3121-want-opencv-to-support-qt5)
+      - [3.1.3. Download openCV4.6.0](#313-download-opencv460)
+      - [3.1.4. Building openCV4.6.0](#314-building-opencv460)
+      - [3.1.5. Check openCV installation](#315-check-opencv-installation)
+      - [3.1.6. Roll back the swap space](#316-roll-back-the-swap-space)
+    - [3.2. One-stop solution shell script to build openCV](#32-one-stop-solution-shell-script-to-build-opencv)
+    - [3.3. Download 4K MP4 Video example](#33-download-4k-mp4-video-example)
+    - [3.4. Install jetson-stats](#34-install-jetson-stats)
+  - [4. Play video with or without hardware accelerate](#4-play-video-with-or-without-hardware-accelerate)
+  - [5. Reference](#5-reference)
 
+<!-- /code_chunk_output -->
 
-## 1.2. Environment and Version
+## 2. Environment and Version
 
 | Component Name  | Version  | Description |
 | :------------: |:---------------:| :-----:|
@@ -18,15 +38,15 @@
 | Linux Kernel     | 4.9        |  |
 | OpenCV | 4.6.0        |    |
 
+## 3. Prerequisite
 
-## 1.3. Prerequisite
-### 1.3.1. Compiling OpenCV with CUDA supported on Jetson Nano 
+### 3.1. Compiling OpenCV with CUDA supported on Jetson Nano
 
 You might have already a version pre-installed OpenCV, however, the pre-installed one has no CUDA support. So you has to rebuild OpenCV with CUDA supported.
 
 Before you are ready to install OpenCV 4.6.0 on your Jetson Nano, you can have a look at the page [Overclocking Jetson Nano CPU to 2 GHZ and GPU to 1 GHZ](https://qengineering.eu/overclocking-the-jetson-nano.html) if you would like overclocking.
 
-#### 1.3.1.1. Enlarge memory swap
+#### 3.1.1. Enlarge memory swap
 
 It needs more than 4Gbytes of RAM and the 2Gbytes of swap space to build the full OpenCV package. We will install dphys-swapfile to get the additional space from SD card, and we will roll back swap sapce to sd card after compilation.
 `$ sudo apt-get update`
@@ -36,6 +56,7 @@ It needs more than 4Gbytes of RAM and the 2Gbytes of swap space to build the ful
 
 To build OpenCV 4.6.0, you need to increase the swap space up to 6144MBytes.Otherwise the compilation will crash without hint, especially when using `make -j4`.
 But some unkonwn stumbling block always appears on the path to success. You will possibly fail to run dphys-swapfile serice on Nano's Ubuntu18.04 because there are some errors while /bin/sh is doing arithmatic calcaltion. So run `$ sudo vim /sbin/dphys-swapfile` to change as below:
+
 ``` shell
 $ sudo diff /sbin/dphys-swapfile.origin /sbin/dphys-swapfile
 1c1
@@ -67,11 +88,12 @@ $ sudo diff /sbin/dphys-swapfile.origin /sbin/dphys-swapfile
 >       let SWAPBYTES="`echo "${CONF_SWAPSIZE} 1048576 * p q" | dc`"
 
 ```
+
 By the way, you don't worry about /etc/dphys-swapfile if you don't want more customized configuration.
 
 After editing /sbin/dphys-swapfile. reboot nano device by  `$ sudo reboot`
 
-after reboot, run the command `$ free -m` to check swap space, the total size of Swap should be about "8122" if you sucessfully change *CONF_MAXSWAP=6144* 
+after reboot, run the command `$ free -m` to check swap space, the total size of Swap should be about "8122" if you sucessfully change *CONF_MAXSWAP=6144*
 
 ``` shell
 $ free -m
@@ -81,9 +103,9 @@ Swap:          8122           0        8122
 
 ```
 
-#### 1.3.1.2. Install all Dependencies
+#### 3.1.2. Install all Dependencies
 
-To install all dependencies, make sure there are enough free space on your SD card. All these package will take up about 800MBtes. 
+To install all dependencies, make sure there are enough free space on your SD card. All these package will take up about 800MBtes.
 
 ``` shell
 # reveal the CUDA location
@@ -111,33 +133,38 @@ $ sudo apt-get install liblapack-dev liblapacke-dev libeigen3-dev gfortran
 $ sudo apt-get install libhdf5-dev libprotobuf-dev protobuf-compiler
 $ sudo apt-get install libgoogle-glog-dev libgflags-dev
 ```
-##### 1.3.1.2.1. Want OpenCV to support Qt5?
+
+##### 3.1.2.1. Want OpenCV to support Qt5?
 
 OpenCV is using Qt5 to build GUI windows, but it isn't  mandatory for openCV. BTW, OpenCV with QT5 will slow down a bit its performence. So it is up to your purpose when you make a decision of whether using Qt or not.
 
 if you want QT5 support, then
+
 ``` shell
-$ sudo apt-get install qt5-default
+sudo apt-get install qt5-default
 ```
+
 When you are compiling openCV, enable *-DWITH_QT=ON*
 
-#### 1.3.1.3. Download openCV4.6.0
+#### 3.1.3. Download openCV4.6.0
+
 ``` shell
-$ cd ~/workspace
-$ wget -O opencv.zip https://github.com/opencv/opencv/archive/4.6.0.zip
-$ wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/4.6.0.zip
+cd ~/workspace
+wget -O opencv.zip https://github.com/opencv/opencv/archive/4.6.0.zip
+wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/4.6.0.zip
 
-$ unzip opencv.zip
-$ unzip opencv_contrib.zip
+unzip opencv.zip
+unzip opencv_contrib.zip
 
-$ mv opencv-4.6.0 opencv
-$ mv opencv_contrib-4.6.0 opencv_contrib
+mv opencv-4.6.0 opencv
+mv opencv_contrib-4.6.0 opencv_contrib
 
-$ rm opencv.zip
-$ rm opencv_contrib.zip
+rm opencv.zip
+rm opencv_contrib.zip
 ```
 
-#### 1.3.1.4. Building openCV4.6.0
+#### 3.1.4. Building openCV4.6.0
+
 ``` shell
 $ cd ~/opencv-4.6.0
 $ mkdir build
@@ -185,8 +212,66 @@ $ make clean
 $ sudo apt-get update
 
 ```
-#### 1.3.1.5. Check openCV installation
 
-### 1.3.2. One-stop solution shell script
+#### 3.1.5. Check openCV installation
 
-[click here](../../../code/script/install-opencv-4.6.0.sh)
+- run python3 and import cv2 to check
+``` shell
+$ python3
+Python 3.6.9 (default, Jun 29 2022, 11:45:57)
+[GCC 8.4.0] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import cv2
+>>> cv2.__version__
+'4.6.0'
+>>> exit()
+```
+- run jtop, check *OpenCV* itme on *6INFO* tab 
+Refer to [3.4. Install jetson-stats](#34-install-jetson-stats) to install jetson-stats packages
+![](../../../asset/opencv/img/jtop-info-opencv.png)
+
+
+
+
+#### 3.1.6. Roll back the swap space
+
+After installation of openCV, Change *CONF_MAXSWAP* in /sbin/dphys-swapfile back to 2048, then reboot
+
+### 3.2. One-stop solution shell script to build openCV
+
+[click here](../../../code/script/install-opencv-4.6.0.sh) to look at install shell script
+
+### 3.3. Download 4K MP4 Video example
+
+Make sure you download 4K video with H.264 codec, save mp4 video as "demo.mp4"
+[click here](https://4kmedia.org/spacex-launches-uhd-4k-demo/) to download 4k video
+
+### 3.4. Install jetson-stats
+
+`sudo apt-get install python3-pip`
+`sudo -H pip3 install -U jetson-stats`
+
+## 4. Play video with or without hardware accelerate
+
+To get all python script, please [click here](../../../code/script/play-video-cv.py) to find play video python script
+
+- As default, play video with hardware acceleration and resize frame in gstreamer
+`python3 play-video-cv.py`
+- play video without hardware acceleration
+`python3 play-video-cv.py no-hw`
+OR
+`python3 play-video-cv.py no-hardware-accelerate`
+
+- play video with hardware acceleartion but resize frame in software 
+`python3 play-video-cv.py hw`
+OR
+`python3 play-video-cv.py hardware-accelerate`
+
+Then, you can check jtop information
+![](../../../asset/opencv/img/jtop-info-playing-video.png)
+
+## 5. Reference
+- [1] [How to Cross Compile OpenCV and MXNET for NVIDIA Jetson (AArch64 CUDA)](https://medium.com/trueface-ai/how-to-cross-compile-opencv-and-mxnet-for-nvidia-jetson-aarch64-cuda-99d467958bce)
+- [2] [Install OpenCV 4.5 on Jetson Nano](https://qengineering.eu/install-opencv-4.5-on-jetson-nano.html)
+- [3] [CUDA Toolkit Documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#async_prog_model_intro)
+- [4] [Nvidia Jetson Nano using HW decoder to accelerate decoding 4K video](https://young-eager-mind.medium.com/nvidia-jetson-nano-using-hw-decoder-to-accelerate-decoding-4k-video-ce786875634f)
