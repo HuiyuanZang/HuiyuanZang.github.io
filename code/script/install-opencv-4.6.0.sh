@@ -9,6 +9,8 @@ cd ~
 sudo sh -c "echo '/usr/local/cuda/lib64' >> /etc/ld.so.conf.d/nvidia-tegra.conf"
 sudo ldconfig
 
+sudo apt-get update
+sudo apt-get upgrade
 # install the dependencies
 # sudo apt-get install -y build-essential cmake git unzip pkg-config zlib1g-dev
 # I already manually compiled and installed cmake 3.23.1, no need install cmake 
@@ -71,7 +73,7 @@ cmake -D CMAKE_BUILD_TYPE=RELEASE \
 -D CUDA_FAST_MATH=ON \
 -D OPENCV_DNN_CUDA=ON \
 -D ENABLE_NEON=ON \
--D WITH_QT=OFF \
+-D WITH_QT=ON \
 -D WITH_OPENMP=ON \
 -D BUILD_TIFF=ON \
 -D WITH_FFMPEG=ON \
