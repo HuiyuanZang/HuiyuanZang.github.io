@@ -1,5 +1,5 @@
 # Running OpenCV on Nvidia Jetson Nano with HW acceleration
-
+![](../../../asset/opencv/img/openCV_logo.png)
 ## Environment and Version
 
 | Component Name  | Version  | Description |
