@@ -1,6 +1,6 @@
-#Running OpenCV on Nvidia Jetson Nano with HW acceleration
+# Running OpenCV on Nvidia Jetson Nano with HW acceleration
 
-##Environment and Version
+## Environment and Version
 
 | Component Name  | Version  | Description |
 | :------------: |:---------------:| :-----:|
@@ -11,14 +11,14 @@
 | OpenCV | 4.6.0        |    |
 
 
-##Prerequisite
-###Compiling OpenCV with CUDA supported on Jetson Nano 
+## Prerequisite
+### Compiling OpenCV with CUDA supported on Jetson Nano 
 
 You might have already a version pre-installed OpenCV, however, the pre-installed one has no CUDA support. So you has to rebuild OpenCV with CUDA supported.
 
 Before you are ready to install OpenCV 4.6.0 on your Jetson Nano, you can have a look at the page [Overclocking Jetson Nano CPU to 2 GHZ and GPU to 1 GHZ](https://qengineering.eu/overclocking-the-jetson-nano.html) if you would like overclocking.
 
-####Enlarge memory swap
+#### Enlarge memory swap
 
 It needs more than 4Gbytes of RAM and the 2Gbytes of swap space to build the full OpenCV package. We will install dphys-swapfile to get the additional space from SD card, and we will roll back swap sapce to sd card after compilation.
 `$ sudo apt-get update`
@@ -73,7 +73,7 @@ Swap:          8122           0        8122
 
 ```
 
-####Install all Dependencies
+#### Install all Dependencies
 
 To install all dependencies, make sure there are enough free space on your SD card. All these package will take up about 800MBtes. 
 
@@ -103,7 +103,7 @@ $ sudo apt-get install liblapack-dev liblapacke-dev libeigen3-dev gfortran
 $ sudo apt-get install libhdf5-dev libprotobuf-dev protobuf-compiler
 $ sudo apt-get install libgoogle-glog-dev libgflags-dev
 ```
-#####Want OpenCV to support Qt5?
+##### Want OpenCV to support Qt5?
 
 OpenCV is using Qt5 to build GUI windows, but it isn't  mandatory for openCV. BTW, OpenCV with QT5 will slow down a bit its performence. So it is up to your purpose when you make a decision of whether using Qt or not.
 
@@ -113,7 +113,7 @@ $ sudo apt-get install qt5-default
 ```
 When you are compiling openCV, enable *-DWITH_QT=ON*
 
-####Download openCV4.6.0
+#### Download openCV4.6.0
 ``` shell
 $ cd ~/workspace
 $ wget -O opencv.zip https://github.com/opencv/opencv/archive/4.6.0.zip
@@ -129,7 +129,7 @@ $ rm opencv.zip
 $ rm opencv_contrib.zip
 ```
 
-####Building openCV4.6.0
+#### Building openCV4.6.0
 ``` shell
 $ cd ~/opencv-4.6.0
 $ mkdir build
