@@ -187,3 +187,6 @@ $ sudo apt-get update
 ```
 #### 1.3.1.5. Check openCV installation
 
+### 1.3.2. One-stop solution shell script
+
+[click here](../../../code/script/install-opencv-4.6.0.sh)
