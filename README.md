@@ -24,14 +24,17 @@
 
 * [Running OpenCV on Nvidia Jetson Nano with HW acceleration](./post/nvidia/cuda/opencv-nano.md)
 
+* #### 2.3. Nvidia cuda
 
-
-
+* [How to upgrade cuda toolkit on system76 laptop](./post/nvidia/cuda/cuda-toolkit-system76.md)
 
 * #### 2.3. Nvidia Jetson Multimeida 
 * [How to play video with hardware accelerate on Nano](./post/nvidia/multimedia-api/video-hw-codec.md)
 
 
 
-* ### 3. STM32F4
+
+* ### 3. OpenCV
+* [How to install OpenCV 4 with CUDA in ubuntu22.04](./post/opencv/opencv-cuda.md)
+* ### 4. STM32F4
 
