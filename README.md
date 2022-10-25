@@ -10,6 +10,7 @@
 * #### 1.1. Linux Kernel Generic Topic
 
 * [The reason of avoiding floating point usage in Linux kernel](./post/linux-kernel/generic/no-floating-point-kernel.md)
+* [Basic module knowledge on Linux kernel](./post/linux-kernel/generic/linux-module-basic.md)
 
 * #### 1.2. Lontium lt6911uxc V4l2 Driver
 
