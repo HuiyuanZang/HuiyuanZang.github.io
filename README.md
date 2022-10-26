@@ -14,6 +14,8 @@
 * [Is printk() safe to use in kernel thread or interrupt handler, in other word, atomic context](./post/linux-kernel/generic/printfk-safe-atomic.md)
 * [Handle null pointer in Linux Kernel](./post/linux-kernel/generic/handle-null-pointer-kernel.md)
 * [How to use pointer as parameter of contanier_of](./post/linux-kernel/generic/pointer-contaner-of-kernel.md)
+* [Dynamic tick/tickless kernel](./post/linux-kernel/generic/concept-tickless-kernel.md)
+* [How to choose delays and sleep in the kernel](./post/linux-kernel/generic/sleep-in-kernel.md)
 
 * #### 1.2. Lontium lt6911uxc V4l2 Driver
 
