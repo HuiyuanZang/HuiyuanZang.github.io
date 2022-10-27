@@ -104,7 +104,7 @@ $ objdump my-module.ko -d -j .modinfo
 
 OR
 ``` shell
-$ modinfo my-module.ko
+$ modinfo my-module.ko 
 ```
 
 ## Reference 

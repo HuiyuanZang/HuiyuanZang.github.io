@@ -1,4 +1,4 @@
-# Delays and sleep in the kernel
+# How to choose delays and sleep in the kernel
 Without going into the details, there are two types of delays, depending on the context your
 code runs in: atomic or nonatomic. The mandatory header to handle delays in the kernel is
 ``` C
