@@ -18,6 +18,7 @@
 * [bottom halves](./post/linux-kernel/generic/bottom-half-kernel.md)
 * [Device Provision in Linux Kernel](./post/linux-kernel/generic/device-provision-kernel.md)
 * [How to expose dt to user space /proc/device-tree](./post/linux-kernel/generic/dt-userspace-kernel.md)
+* [SPI user mode driver](./post/linux-kernel/generic/spi-userspace-driver-kernel.md)
 
 
 
