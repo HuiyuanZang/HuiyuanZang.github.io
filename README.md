@@ -19,6 +19,8 @@
 * [Device Provision in Linux Kernel](./post/linux-kernel/generic/device-provision-kernel.md)
 * [How to expose dt to user space /proc/device-tree](./post/linux-kernel/generic/dt-userspace-kernel.md)
 * [SPI user mode driver](./post/linux-kernel/generic/spi-userspace-driver-kernel.md)
+* [why does the kernel share its address space with every process](./post/linux-kernel/generic/shared-kernel-address-kernel.md)
+* [DMA coherence issue](./post/linux-kernel/generic/dma-coherence-issue.md)
 
 
 
