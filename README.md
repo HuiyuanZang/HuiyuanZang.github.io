@@ -21,9 +21,11 @@
 * [SPI user mode driver](./post/linux-kernel/generic/spi-userspace-driver-kernel.md)
 * [why does the kernel share its address space with every process](./post/linux-kernel/generic/shared-kernel-address-kernel.md)
 * [DMA coherence issue](./post/linux-kernel/generic/dma-coherence-issue.md)
-
-
-
+* [ACPI Introduction](https://drive.google.com/file/d/19j1erkAUdfVlV3hQ4dredwrRvpIhWTkS/view?usp=share_link)
+* [ACPI Document](https://acpica.org/documentation)
+* [ACPI Support in Linux Kernel](https://docs.kernel.org/firmware-guide/acpi/index.html)
+* [Learn the architecture - AArch64 memory management](https://drive.google.com/file/d/1tIPAmHhhueb9Uv1x5HUa3FMYa78D-mzW/view?usp=share_link)
+* [What happends when sending SIGKILL to a Zombie Process in Linux?](./post/linux-kernel/generic/signal-tozombie-process.md)
 * ### 1.2. Lontium lt6911uxc V4l2 Driver
 
 
