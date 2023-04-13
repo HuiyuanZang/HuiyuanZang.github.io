@@ -25,3 +25,6 @@ page/frame describes a single entry in the page table. This represents a mapping
 
 
 the size page = the size frame
+
+
+Another reason is that Kernel should manage all resouce shared with each process.

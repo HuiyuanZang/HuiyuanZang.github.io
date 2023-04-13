@@ -26,6 +26,11 @@
 * [ACPI Support in Linux Kernel](https://docs.kernel.org/firmware-guide/acpi/index.html)
 * [Learn the architecture - AArch64 memory management](https://drive.google.com/file/d/1tIPAmHhhueb9Uv1x5HUa3FMYa78D-mzW/view?usp=share_link)
 * [What happends when sending SIGKILL to a Zombie Process in Linux?](./post/linux-kernel/generic/signal-tozombie-process.md)
+* [Thread, process and light weight process(LWP) in linux](./post/linux-kernel/generic/thread-process-lwp.md)
+* [An Example of assigning lowest usage CPU to thread ](./post/linux-kernel/generic/example-assign-certain-cpu-thread.md)
+* [Linux Process Descriptor ](./post/linux-kernel/generic/process-descriptor.md)
+* [what does do_fork() and copy_process() does?](./post/linux-kernel/generic/what-do-fork-does.md)
+* [kernel thread](./post/linux-kernel/generic/kernel-thread.md)
 * ### 1.2. Lontium lt6911uxc V4l2 Driver
 
 
