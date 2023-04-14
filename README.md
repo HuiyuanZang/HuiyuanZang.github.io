@@ -31,6 +31,10 @@
 * [Linux Process Descriptor ](./post/linux-kernel/generic/process-descriptor.md)
 * [what does do_fork() and copy_process() does?](./post/linux-kernel/generic/what-do-fork-does.md)
 * [kernel thread](./post/linux-kernel/generic/kernel-thread.md)
+* [Interrrupt Descriptor Table(IDT) on X86 Vs Exception Vector table(EVT) on Arm64](./post/linux-kernel/generic/idt-vs-evt.md)
+* [the stacks used in Linux on Arm64](./post/linux-kernel/generic/stack-in-kernel.md)
+* [concept of devm_request_threaded_irq()](./post/linux-kernel/generic/devm_request_threaded_irq.md)
+* [Interprocessor Interrupt Handling](./post/linux-kernel/generic/Interprocessor-interrupt-handling.md)
 * ### 1.2. Lontium lt6911uxc V4l2 Driver
 
 
