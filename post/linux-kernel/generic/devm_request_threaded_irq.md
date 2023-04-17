@@ -4,21 +4,21 @@ The implementation of devm_request_threaded_irq() in the Linux kernel is quite c
 
 When a driver calls devm_request_threaded_irq() to request a threaded IRQ, the Linux kernel performs the following steps:
 
-The kernel registers an interrupt handler function using request_irq(). This function will be executed when the interrupt is triggered.
+- The kernel registers an interrupt handler function using request_irq(). This function will be executed when the interrupt is triggered.
 
-The kernel allocates a new kernel thread using kthread_create(). This thread will be used to execute the threaded IRQ handler function in a separate kernel thread.
+- The kernel allocates a new kernel thread using kthread_create(). This thread will be used to execute the threaded IRQ handler function in a separate kernel thread.
 
-The kernel registers a threaded softirq using tasklet_init() or irq_thread_create(). This softirq will be used to schedule the threaded IRQ handler function in the new kernel thread.
+- The kernel registers a threaded softirq using tasklet_init() or irq_thread_create(). This softirq will be used to schedule the threaded IRQ handler function in the new kernel thread.
 
-When the interrupt is triggered, the interrupt handler function is executed in interrupt context.
+- When the interrupt is triggered, the interrupt handler function is executed in interrupt context.
 
-The interrupt handler function schedules the threaded softirq using tasklet_schedule() or irq_thread_queue_handler(). This schedules the threaded IRQ handler function to be executed in the new kernel thread.
+- The interrupt handler function schedules the threaded softirq using tasklet_schedule() or irq_thread_queue_handler(). This schedules the threaded IRQ handler function to be executed in the new kernel thread.
 
-The threaded IRQ handler function is executed in the new kernel thread. This function can perform any necessary processing or handling of the interrupt.
+- The threaded IRQ handler function is executed in the new kernel thread. This function can perform any necessary processing or handling of the interrupt.
 
-When the threaded IRQ handler function completes, the kernel thread is terminated using kthread_stop().
+- When the threaded IRQ handler function completes, the kernel thread is terminated using kthread_stop().
 
-Here is a simplified code example that shows how the threaded softirq mechanism can be used to implement a basic threaded interrupt handler function:
+- Here is a simplified code example that shows how the threaded softirq mechanism can be used to implement a basic threaded interrupt handler function:
 
 ```C
 #include <linux/interrupt.h>

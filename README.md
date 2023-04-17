@@ -35,6 +35,7 @@
 * [the stacks used in Linux on Arm64](./post/linux-kernel/generic/stack-in-kernel.md)
 * [concept of devm_request_threaded_irq()](./post/linux-kernel/generic/devm_request_threaded_irq.md)
 * [Interprocessor Interrupt Handling](./post/linux-kernel/generic/Interprocessor-interrupt-handling.md)
+* [Atomic context and kernel API design](./post/linux-kernel/generic/atomic-contex-linux-design.md)
 * ### 1.2. Lontium lt6911uxc V4l2 Driver
 
 
