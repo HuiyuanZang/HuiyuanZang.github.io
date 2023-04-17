@@ -36,6 +36,9 @@
 * [concept of devm_request_threaded_irq()](./post/linux-kernel/generic/devm_request_threaded_irq.md)
 * [Interprocessor Interrupt Handling](./post/linux-kernel/generic/Interprocessor-interrupt-handling.md)
 * [Atomic context and kernel API design](./post/linux-kernel/generic/atomic-contex-linux-design.md)
+* [Different kernel control path](./post/linux-kernel/generic/different-type-kernel-control-path.md)
+* [Preemptive Kernel Vs Nonpreemptive Kernel](./post/linux-kernel/generic/preemptive-nonpreemptive-kenel.md)
+* [Synchronization Primitives](./post/linux-kernel/generic/synchroniztion-primitives.md)
 * ### 1.2. Lontium lt6911uxc V4l2 Driver
 
 
