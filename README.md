@@ -39,6 +39,7 @@
 * [Different kernel control path](./post/linux-kernel/generic/different-type-kernel-control-path.md)
 * [Preemptive Kernel Vs Nonpreemptive Kernel](./post/linux-kernel/generic/preemptive-nonpreemptive-kenel.md)
 * [Synchronization Primitives](./post/linux-kernel/generic/synchroniztion-primitives.md)
+* [Scheduling Policy](./post/linux-kernel/generic/scheduling-policy.md)
 * ### 1.2. Lontium lt6911uxc V4l2 Driver
 
 
