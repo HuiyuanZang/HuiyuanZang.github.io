@@ -60,6 +60,8 @@
 * ### 2.3. Nvidia Jetson Multimeida 
 * [How to play video with hardware accelerate on Nano](./post/nvidia/multimedia-api/video-hw-codec.md)
 
+* ### 2.4  How to flash nvidia jetson orin nx and nano on P3505 compatible board
+* [How to flash nvidia jetson orin nx and nano on P3505 compatible board](./post/nvidia/flash-orin-p3505.md)
 
 
 
