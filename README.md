@@ -71,3 +71,7 @@
 
 * ## 4. Microprocessor
 * [Cortex-M Semihosting](./post/microprocessor/semihost.md)
+
+
+* ## 5. AI
+* [The roadmap of learning AI](./post/ai/introduction.md)
