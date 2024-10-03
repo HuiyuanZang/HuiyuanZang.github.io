@@ -40,6 +40,8 @@
 * [Preemptive Kernel Vs Nonpreemptive Kernel](./post/linux-kernel/generic/preemptive-nonpreemptive-kenel.md)
 * [Synchronization Primitives](./post/linux-kernel/generic/synchroniztion-primitives.md)
 * [Scheduling Policy](./post/linux-kernel/generic/scheduling-policy.md)
+* [Volatile Condisered harmful in Linux Kernel](./post/linux-kernel/generic/volatile_condisered_harmful.md)
+* [asm("int $0x3B")](./post/linux-kernel/generic/int_0x3b.md)
 * ### 1.2. Lontium lt6911uxc V4l2 Driver
 
 
@@ -75,3 +77,10 @@
 
 * ## 5. AI
 * [The roadmap of learning AI](./post/ai/introduction.md)
+
+* ## 6. Math
+* [Linear Algebra](./post/math/matrices.tex)
+* ## X. Demo Code
+*  [epoll in TCP server](./code/c/epoll_tcp_server.c)
+  
+
