@@ -1,0 +1,65 @@
+# Linux Kernel Initialization
+
+## start_kernel()
+
+```C
+asmlinkage __visible void __init start_kernel(void){
+    
+}
+```
+
+
+- **asmlnkage**
+
+The exact asmlinkage definition depends slightly on the architecture (x86, arm64, etc.), but the core idea is the same.
+
+
+You’ll find it in:
+``C
+include/linux/linkage.h
+```
+
+and architecture-specific overrides in:
+
+```C
+arch/x86/include/asm/linkage.h
+
+#ifdef __cplusplus
+#define CPP_ASMLINKAGE extern "C"
+#else
+#define CPP_ASMLINKAGE
+#endif
+#define asmlinkage CPP_ASMLINKAGE __attribute__((regparm(0)))
+
+
+
+arch/arm64/include/asm/linkage.h
+#define asmlinkage
+```
+
+__attribute__((regparm(0))) tells GCC not to pass any arguments in registers — all arguments go on the stack.
+
+By default, x86-64 System V ABI passes the first arguments in registers (rdi, rsi, rdx, etc.).
+But for kernel entry points called from assembly (like system calls), the kernel wants to control where the arguments are, so it enforces stack-based calling.
+
+- **__visible**
+
+__visible is a compiler attribute that tells GCC/Clang not to hide this symbol during optimization or linking.
+It’s defined roughly like this:
+```C
+#define __visible __attribute__((externally_visible))
+
+```
+Normally, the compiler can mark internal functions as hidden (not visible outside the translation unit) to allow optimizations like inlining.
+But for critical functions (like start_kernel()), we must ensure the symbol is visible in the final binary so that the bootloader or startup assembly can find and call it
+
+- **__init**
+
+__init marks a function as initialization-only, meaning:
+- It is only used during boot-up.
+- After initialization is complete, the kernel frees the memory where it was stored to save RAM.
+
+```C
+#define __init __section(".init.text")
+```
+It places the function in a special ELF section .init.text, which the kernel discards after initialization.
