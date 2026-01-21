@@ -120,3 +120,29 @@ Then convert ONNX to Engine (TensorRT 10.3)
 
 
 ## Explore 
+
+
+
+
+
+
+
+
+
+
+## Appendix
+### What is fp16:chw?
+
+This flag tells trtexec exactly how you plan to feed data into the GPU memory. It stands for Half-Precision (FP16) data in Channel-Height-Width (CHW) order.
+fp16: You are telling the engine that your C++ code will provide the image pixels as 16-bit floats (half-precision) rather than standard 32-bit floats. This saves 50% of your memory bandwidth.
+
+chw and hwc (The Layout):
+
+- HWC (Standard): Most images (like OpenCV Mat) are stored as RGBRGBRGB... (Height x Width x Channel).
+
+- CHW (Planar): Deep learning models want all Reds, then all Greens, then all Blues: RRR...GGG...BBB....
+
+Why use this flag? By setting --inputIOFormats=fp16:chw, you are "locking" the engine to this format. If your CUDA C++ preprocessing already outputs Planar FP16, the engine won't waste time doing an internal "reformat" (which usually adds ~0.5ms of latency).
+
+
+
