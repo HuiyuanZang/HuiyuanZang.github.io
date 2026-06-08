@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" width="100%" height="100%" style="background-color: #ffffff; font-family: Arial, sans-serif;">
+  
+  <defs>
+    <marker id="arrow-ned" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#333333" />
+    </marker>
+    <marker id="arrow-cam" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2563EB" />
+    </marker>
+    <marker id="arrow-world-ground" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#059669" />
+    </marker>
+    <marker id="arrow-world-air" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#DC2626" />
+    </marker>
+    <marker id="arrow-trajectory" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#8B5CF6" />
+    </marker>
+  </defs>
+
+  <path d="M 50,550 L 950,550 L 850,680 L -50,680 Z" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+  <text x="750" y="660" font-size="18" fill="#64748b" font-weight="bold" font-style="italic">Earth Ground Plane (Z = 0)</text>
+
+  <g transform="translate(150, 580)">
+    <line x1="0" y1="0" x2="80" y2="-40" stroke="#333333" stroke-width="3" marker-end="url(#arrow-ned)" />
+    <line x1="0" y1="0" x2="90" y2="20" stroke="#333333" stroke-width="3" marker-end="url(#arrow-ned)" />
+    <line x1="0" y1="0" x2="0" y2="80" stroke="#333333" stroke-width="3" marker-end="url(#arrow-ned)" />
+    <text x="85" y="-45" font-size="16" fill="#333333" font-weight="bold">North (X)</text>
+    <text x="100" y="25" font-size="16" fill="#333333" font-weight="bold">East (Y)</text>
+    <text x="-35" y="90" font-size="16" fill="#333333" font-weight="bold">Down (Z)</text>
+    <text x="-60" y="-10" font-size="18" fill="#333333" font-weight="bold">Earth-Fixed</text>
+    <text x="-60" y="10" font-size="18" fill="#333333" font-weight="bold">NED Frame</text>
+  </g>
+
+  <g transform="translate(300, 200)">
+    <path d="M -80,0 C -80,-15 40,-20 80,0 C 40,20 -80,15 -80,0 Z" fill="#e2e8f0" stroke="#64748b" stroke-width="3"/>
+    <path d="M -20,0 L -50,-60 L 10,-60 L 20,0 Z" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
+    <path d="M -20,0 L -50,60 L 10,60 L 20,0 Z" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
+    <path d="M -70,0 L -90,-30 L -80,-30 Z" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
+    <text x="-40" y="-80" font-size="18" fill="#333333" font-weight="bold">UAV Tracker</text>
+  </g>
+
+  <circle cx="340" cy="210" r="15" fill="#f1f5f9" stroke="#334155" stroke-width="3" />
+  <path d="M 340,225 L 340,240" stroke="#334155" stroke-width="4" />
+  <circle cx="340" cy="245" r="12" fill="#94a3b8" stroke="#334155" stroke-width="2" />
+
+  <g transform="translate(680, 580)">
+    <rect x="-20" y="-10" width="40" height="10" rx="2" fill="#94a3b8" stroke="#475569" stroke-width="2" />
+    <line x1="-25" y1="-10" x2="25" y2="-10" stroke="#475569" stroke-width="2" />
+    <circle cx="-25" cy="-10" r="4" fill="#475569" />
+    <circle cx="25" cy="-10" r="4" fill="#475569" />
+    <ellipse cx="0" cy="5" rx="25" ry="5" fill="#cbd5e1" />
+  </g>
+  <text x="695" y="610" font-size="16" fill="#059669" font-weight="bold">t<tspan dy="5" font-size="12">0</tspan><tspan dy="-5">: Ground Model</tspan></text>
+  <text x="695" y="630" font-size="14" fill="#059669" font-style="italic">(Z = 0 Constraint)</text>
+
+  <g transform="translate(850, 350)">
+    <rect x="-20" y="-10" width="40" height="10" rx="2" fill="#475569" stroke="#1e293b" stroke-width="2" />
+    <line x1="-25" y1="-10" x2="25" y2="-10" stroke="#1e293b" stroke-width="2" />
+    <circle cx="-25" cy="-10" r="4" fill="#1e293b" />
+    <circle cx="25" cy="-10" r="4" fill="#1e293b" />
+  </g>
+  <text x="880" y="340" font-size="16" fill="#DC2626" font-weight="bold">t<tspan dy="5" font-size="12">1</tspan><tspan dy="-5">: Airborne Model</tspan></text>
+  <text x="880" y="360" font-size="14" fill="#DC2626" font-style="italic">(3D Unconstrained)</text>
+
+  <path d="M 680,570 Q 720,400 830,350" fill="none" stroke="#8B5CF6" stroke-width="3" stroke-dasharray="8,6" marker-end="url(#arrow-trajectory)" />
+  <text x="760" y="460" font-size="16" fill="#8B5CF6" font-weight="bold" font-style="italic">IMM Transition</text>
+
+  <line x1="340" y1="245" x2="680" y2="570" stroke="#059669" stroke-width="2" stroke-dasharray="4,4" />
+  <line x1="340" y1="245" x2="476" y2="375" stroke="#059669" stroke-width="4" marker-end="url(#arrow-world-ground)" />
+  <text x="460" y="410" font-size="18" fill="#059669" font-style="italic" font-weight="bold">r⃗<tspan dy="5" font-size="12">w_ground</tspan></text>
+
+  <line x1="340" y1="245" x2="850" y2="350" stroke="#DC2626" stroke-width="2" stroke-dasharray="4,4" />
+  <line x1="340" y1="245" x2="544" y2="287" stroke="#DC2626" stroke-width="4" marker-end="url(#arrow-world-air)" />
+  <text x="530" y="275" font-size="18" fill="#DC2626" font-style="italic" font-weight="bold">r⃗<tspan dy="5" font-size="12">w_air</tspan></text>
+
+  <path d="M 825,335 L 815,335 L 815,365 L 825,365" stroke="#64748b" stroke-width="1.5" fill="none" />
+  <text x="730" y="355" font-size="14" fill="#64748b" font-style="italic">Target Scale Prior</text>
+  <text x="730" y="370" font-size="14" fill="#64748b" font-style="italic">(Resolves distance)</text>
+
+  <rect x="50" y="20" width="340" height="120" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+  <text x="65" y="45" font-size="18" fill="#1e293b" font-weight="bold">IMM Domain Transition Logic:</text>
+  
+  <text x="65" y="70" font-size="15" fill="#059669" font-weight="bold">1. Ground Likelihood:</text>
+  <text x="215" y="70" font-size="14" fill="#059669" font-family="monospace">Z = 0 Constraint</text>
+  
+  <text x="65" y="95" font-size="15" fill="#DC2626" font-weight="bold">2. Airborne Likelihood:</text>
+  <text x="230" y="95" font-size="14" fill="#DC2626" font-family="monospace">BOT + Scale Prior</text>
+
+  <text x="65" y="120" font-size="15" fill="#8B5CF6" font-weight="bold">3. Normalized Weight:</text>
+  <text x="225" y="120" font-size="14" fill="#8B5CF6" font-family="monospace">μ<tspan dy="3" font-size="10">k</tspan><tspan dy="-3" font-size="10" baseline-shift="super">(j)</tspan></text>
+
+</svg>

@@ -1,0 +1,99 @@
+classDiagram
+    %% Core Orchestrator
+    class AcCubatureKalmanFilter {
+        -std::vector~unique_ptr~AbstractCKFModel~~ _models
+        -Eigen::Vector3d _modeProbabilities
+        -Eigen::Matrix3d _transitionMatrix
+        +AcCubatureKalmanFilter(int width, int height)
+        +Initialize(det: AcDetection, uav: UAVTelemetryMetaData, gim: GimbalRxReport)
+        +Predict(dt: double, gim: GimbalRxReport)
+        +Update(det: AcDetection, uav: UAVTelemetryMetaData, gim: GimbalRxReport)
+        +GetState() Eigen::Matrix~double, 8, 1~
+    }
+
+    %% Abstract Base Class
+    class AbstractCKFModel {
+        <<abstract>>
+        #StateVector _x
+        #StateMatrix _P
+        #StateMatrix _QBase
+        #MeasMatrix _RBase
+        #double _likelihood
+        +SetState(x: StateVector, P: StateMatrix)
+        +GetState() StateVector
+        +GetCovariance() StateMatrix
+        +GetLikelihood() double
+        +Predict(dt: double, gim: GimbalRxReport)*
+        +Update(det: AcDetection, uav: UAVTelemetryMetaData, gim: GimbalRxReport)
+        #MeasurementFunction(state: StateVector, uav: UAVTelemetryMetaData, gim: GimbalRxReport)* MeasVector
+        #GetDynamicProcessNoise(dt: double) StateMatrix
+        #GetDynamicMeasurementNoise() MeasMatrix
+    }
+
+    %% Derived Kinematic Models
+    class GroundCKFModel {
+        +GroundCKFModel(w: int, h: int)
+        +Predict(dt: double, gim: GimbalRxReport)
+        #MeasurementFunction(state: StateVector, uav: UAVTelemetryMetaData, gim: GimbalRxReport) MeasVector
+    }
+
+    class AirborneCKFModel {
+        +AirborneCKFModel(w: int, h: int)
+        +Predict(dt: double, gim: GimbalRxReport)
+        #MeasurementFunction(state: StateVector, uav: UAVTelemetryMetaData, gim: GimbalRxReport) MeasVector
+    }
+
+    class ManeuveringCKFModel {
+        +ManeuveringCKFModel(w: int, h: int)
+    }
+
+    %% Data Structures (Inputs)
+    class AcDetection {
+        <<struct>>
+        +float x1, y1, x2, y2
+        +float score
+        +int classId
+        +string idName
+        +ToString() string$
+        +CalculateIoU(a: AcDetection, b: AcDetection) float$
+    }
+
+    class UAVTelemetryMetaData {
+        <<struct>>
+        +float roll, pitch, yaw
+        +float rollspeed, pitchspeed, yawspeed
+        +int32_t lat, lon, alt, relative_alt
+        +int16_t vx, vy, vz
+        +uint64_t deviceTimeStamp
+        +uint64_t linuxTimeStamp
+    }
+
+    class GimbalRxReport {
+        <<struct>>
+        +CameraType cameraType
+        +MountOrientation mountType
+        +double hFov, vFov
+        +double pitch, roll, yaw
+        +double acelX, acelY, acelZ
+        +uint64_t deviceTimeStamp
+        +uint64_t linuxTimeStamp
+    }
+
+    class UAVTelemetryHistoryBuffer {
+        -std::deque~UAVTelemetryMetaData~ _buffer
+        -std::mutex _mutex
+        +PushTelemetry(data: UAVTelemetryMetaData)
+        +GetInterpolatedTelemetry(timestamp: uint64_t) UAVTelemetryMetaData
+    }
+
+    %% Relationships
+    AcCubatureKalmanFilter "1" *-- "Many" AbstractCKFModel : Composes
+    AbstractCKFModel <|-- GroundCKFModel : Inherits
+    AbstractCKFModel <|-- AirborneCKFModel : Inherits
+    AirborneCKFModel <|-- ManeuveringCKFModel : Inherits
+    
+    AcCubatureKalmanFilter ..> AcDetection : Uses
+    AcCubatureKalmanFilter ..> UAVTelemetryMetaData : Uses
+    AcCubatureKalmanFilter ..> GimbalRxReport : Uses
+    
+    UAVTelemetryHistoryBuffer "1" o-- "Many" UAVTelemetryMetaData : Aggregates
