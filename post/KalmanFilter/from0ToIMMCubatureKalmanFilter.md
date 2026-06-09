@@ -287,13 +287,28 @@ While theoretical texts freely expand state dimensions, embedded systems process
 
 **The Mathematical Concept**
 
+
+
 In Bayesian filtering, uncertainty is modeled using the State Covariance Matrix, $P$. A fundamental rule of probability is that variance cannot be negative. Therefore, a valid covariance matrix must be Positive Definite. Mathematically, a symmetric matrix $A$ is positive definite if its eigenvalues are all strictly greater than zero, ensuring:
 
 $$x^T A x > 0$$
 
+Before we decompose the covariance matrix, we must understand what it physically represents. If the state vector $\mathbf{x}$ is the filter's "best guess" of where the target is, the State Covariance Matrix $P$ is the filter's "uncertainty bubble" around that guess.
+
+For an $n$-dimensional state vector, $P$ is a symmetric $n \times n$ matrix:
+
+1 **The Diagonals (Variances)**: The elements along the main diagonal (e.g., $P_{0,0}$, $P_{1,1}$) represent the variance ($\sigma^2$) of each individual state. If $P_{0,0}$ is the variance of the $X$-position, a large number means the filter is highly uncertain about the target's exact $X$ coordinate.
+
+2 **The Off-Diagonals (Covariances)**: The elements off the main diagonal (e.g., $P_{0,1}$, $P_{1,0}$) represent the correlation between two states. If a target is turning, its $X$-velocity and $Y$-velocity are mathematically linked. A high covariance means that if the filter updates its belief about the $X$-velocity, it must proportionally update its belief about the $Y$-velocity.
+
+Geometrically, in 3D space, the $P$ matrix defines an ellipsoid (a 3D oval). The diagonals dictate how large the oval is, and the off-diagonals dictate how the oval is tilted or rotated in space.
+
+
 To generate deterministic cubature points, the CKF requires calculating the "square root" of the $P$ matrix. Because $P$ is symmetric and positive definite, we use Cholesky Decomposition. This algorithm factors the matrix into the product of a lower triangular matrix $L$ and its transpose $L^T$:
 
 $$P = L L^T$$
+
+**Deep Dive: The Mathematical Proof** > > This chapter focuses on the application of Cholesky decomposition for edge hardware. However, understanding exactly why every symmetric, positive-definite matrix can be uniquely factored this way is a beautiful piece of linear algebra. If you are interested in the rigorous step-by-step mathematical derivation and the proof by induction, please refer to **Appendix: The Square Root of a Matrix and Cholesky Decomposition**.
 
 **The Engineering Dilemma**
 
@@ -709,13 +724,304 @@ public:
 
 #  Probability Theory & Stochastic Processes
 
+If the kinematics in Chapter 3 described how a target should move, probability theory describes how it actually moves in a chaotic universe. Sensors suffer from thermal noise, wind shears alter flight paths, and uncooperative targets execute unpredictable maneuvers. To build an optimal estimator, we cannot rely on deterministic certainties; we must compute with probabilities.
+
 ## Random variables, probability density functions (PDFs), and Bayes' Theorem.
+
+**The Mathematical Concept**
+
+In tracking, the true kinematic state of a target ($\mathbf{x}$) and the measurements from our sensors ($\mathbf{z}$) are Continuous Random Variables. Because they can take on an infinite number of values (e.g., a drone can be at 100.0 meters, 100.001 meters, etc.), we cannot assign a probability to a specific, exact number.
+
+Instead, we use a Probability Density Function (PDF), denoted as $p(\mathbf{x})$. The PDF defines the relative likelihood of the random variable falling within a particular spatial region.
+
+In the context of aerospace tracking, the target's state $\mathbf{x}$ (where it actually is) and the measurement $\mathbf{z}$ (where the sensor thinks it is) are not single, absolute numbers. They are probability distributions—specifically, bell curves (Gaussians) representing uncertainty. Bayes' theorem is the mathematical engine that merges these conflicting curves into a single truth.
+
+$$p(\mathbf{x} \mid \mathbf{z}) = \frac{p(\mathbf{z} \mid \mathbf{x}) p(\mathbf{x})}{p(\mathbf{z})}$$
+
+Where:
+- Prior $p(\mathbf{x})$: 
+  
+  **The Engineering Meaning** : This is the filter's Prediction.
+
+  **What it is**: Based on the kinematic ODEs we built in Chapter 3, this is where the filter believes the target is before the camera shutter opens.
+
+  **The Shape**: Because of process noise (wind, unknown target maneuvers), this prediction is not a single point; it is a Gaussian curve spread out over space. A wider curve means the filter is highly uncertain about its prediction.
+
+
+- Likelihood $p(\mathbf{z} \mid \mathbf{x})$: 
+  
+  **The Engineering Meaning**: This is the Sensor Measurement.
+
+  **What it is**: This answers the question: "If the target is actually at state $\mathbf{x}$, how likely is it that my camera would output the exact bounding box $\mathbf{z}$ that I just received?"
+
+  **The Shape**: Visual AI sensors have inherent pixel jitter and calibration errors. Therefore, the measurement itself is a Gaussian curve centered on the pixel detection. A cheap, noisy sensor produces a very wide, flat curve; a military-grade laser rangefinder produces a very narrow, sharp curve.
+
+- The Posterior: $p(\mathbf{x} \mid \mathbf{z})$
+  
+  **The Engineering Meaning**: This is the Updated Estimate (The final output of the filter for this frame).
+
+  **What it is**: This is our new, refined belief of the target's true state, given both our internal physics prediction and the new sensor data.
+
+  **The Math**: The numerator of Bayes' theorem simply multiplies the Prior curve and the Likelihood curve together.
+
+- Evidence $p(\mathbf{z})$
+  
+   **The Engineering Meaning**: The Normalizing Constant.
+
+   **What it is**:When you multiply two Gaussian curves together, the resulting curve shrinks. In probability theory, the total area under a PDF curve must always equal exactly 1.0 (representing 100% total probability). The Evidence term $p(\mathbf{z})$ calculates the total, absolute probability of receiving this specific measurement across the entire universe of possible states. By dividing by this term, we scale the new multiplied curve back up so its area equals 1.0.
+
+
+**Engineering Example: The 1D Drone Intercept**
+
+Imagine a 1D tracking scenario. We are tracking a drone's horizontal distance ($X$) along a runway.
+
+**1. The Prediction (Prior)**
+
+Our Constant Velocity (CV) model pushes the state forward in time. Based on the drone's previous speed, the filter predicts the drone is currently at 100 meters. Because a heavy crosswind was detected, our process noise is high. The filter's belief is a wide Gaussian curve centered at 100m.
+
+**2. The Measurement (Likelihood)**
+
+The camera processes the latest video frame and detects the drone. The bounding box centroid maps to a distance of 110 meters. The camera is known to have $\pm 5$ meters of thermal noise. This creates a second, narrower Gaussian curve centered at 110m.
+
+
+**3. The Multiplication (Posterior)**
+
+We now have two conflicting pieces of data: the physics model says 100m, the camera says 110m. Bayes' theorem handles this conflict seamlessly by multiplying the two curves.
+
+Because the camera's curve (Likelihood) is narrower (meaning it has less variance/uncertainty) than the physics prediction curve (Prior), the multiplication heavily favors the camera. The resulting Posterior curve will not peak perfectly in the middle at 105m. Instead, the mathematical peak will shift closer to the more "certain" data source—perhaps peaking at 108 meters.
+
+Furthermore, because we have successfully fused two independent sources of information, the new Posterior curve will be narrower and taller than both the Prior and the Likelihood. Mathematically, Bayes' theorem guarantees that fusing data always reduces overall system uncertainty.
+
+**Deep Dive: The Birth of the Kalman Gain**
+
+We just stated that multiplying two Gaussian bell curves miraculously creates a third, perfectly shaped Gaussian curve. But why? And how does that relate to writing C++ tracking code?If you multiply the algebraic equations of these two curves, the resulting formula for the new Mean and Variance is exactly the 1D Kalman Filter Update Equation. For the step-by-step algebraic proof showing exactly how the Kalman Gain ($K$) is derived from this multiplication, refer to **Appendix: The Gaussian Multiplication Proof and the Origins of the Kalman Gain**.
+
+**The Engineering Dilemma (The Integration Problem)**
+
+The Evidence term $p(\mathbf{z})$ requires integrating the likelihood across the entire infinite state space: $p(\mathbf{z}) = \int p(\mathbf{z} \mid \mathbf{x}) p(\mathbf{x}) d\mathbf{x}$. For non-linear camera projections, this integral has no closed-form analytical solution. It is impossible to calculate on a CPU. This mathematical roadblock is exactly why the Cubature Kalman Filter uses numerical cubature points to approximate this integral, rather than attempting to solve Bayes' Theorem analytically.
+
+## Expectation algebra
+
+To write tracking algorithms, we don't manipulate entire PDF curves; we manipulate their statistical properties using **Expectation Algebra**.
+
+The Expected Value ($E[\mathbf{x}]$) is the mathematical center of mass of the PDF. In tracking, this is our state estimate, denoted as $\hat{\mathbf{x}}$ or $\mu$.
+
+The Covariance ($P$) measures how much the random variable is expected to spread out from its mean:
+$$P = E[(\mathbf{x} - \hat{\mathbf{x}})(\mathbf{x} - \hat{\mathbf{x}})^T]$$
+
+Expectation is a linear operator. This means that if we apply a linear matrix transformation to our state (like multiplying our state by the State Transition Matrix $F$), the expectation flows through cleanly.
+
+
+(Note: The rigorous mathematical proof showing exactly how covariance propagates through linear matrices—resulting in the famous Kalman Filter equation $P_{k|k-1} = F P_{k-1} F^T + Q$—is fundamental to estimation theory. To keep this chapter focused on implementation, the complete derivation is provided in Appendix: Expectation Algebra and Covariance Propagation).
+
 
 ## Gaussian distributions and their properties (multivariate normal distribution).
 
+**The Mathematical Concept**
+
+While Bayes' theorem theoretically works for any PDF shape, maintaining arbitrary, lopsided probability curves in software requires massive particle filters that choke embedded CPUs.
+
+
+The Kalman Filter family makes a bold mathematical assumption: all uncertainties are Gaussian (Normal) distributions. Governed by the Central Limit Theorem, this is a safe assumption because the sum of many independent random noises (thermal jitter, wind, vibration) naturally tends toward a Gaussian shape.
+
+A Multivariate Gaussian is entirely defined by just two parameters: its mean vector $\mu$ (the state estimate) and its covariance matrix $P$ (the uncertainty). The PDF is evaluated as:
+
+$$\mathcal{N}(\mathbf{x}; \mu, P) = \frac{1}{\sqrt{(2\pi)^n |P|}} \exp\left( -\frac{1}{2}(\mathbf{x} - \mu)^T P^{-1} (\mathbf{x} - \mu) \right)$$
+
+Where:
+
+- $n$ is the dimension of the state vector.
+- $|P|$ is the determinant of the covariance matrix.
+- $P^{-1}$ is the inverse of the covariance matrix.
+
+
+**The Engineering Connection to Chapter 2**
+Look closely at the Gaussian equation above. To evaluate a target's likelihood, the CPU must calculate the determinant $|P|$ and the inverse $P^{-1}$. If floating-point drift causes your covariance matrix to lose positive definiteness (as discussed in Chapter 2.2), the determinant $|P|$ becomes negative. The term $\sqrt{|P|}$ then attempts to take the square root of a negative number, resulting in an immediate software crash. This proves why rigorous Cholesky regularization is non-negotiable in production tracking.
+
+
 ## Markov processes and transition probabilities.
 
+**The Mathematical Concept**
 
+A **Markov Process** (specifically a discrete-time Markov Chain) is a mathematical framework for modeling systems that transition from one state to another over time.
+
+The defining rule of a **Markov Process** is the **Markov Property** (or "memoryless" property): The probability of transitioning to any future state depends entirely on the current state, and completely ignores the historical path taken to get there.
+
+If a system has a set of possible states $S = \{s_1, s_2, \dots, s_n\}$, the Markov Property is written mathematically as:
+
+$$P(X_{k+1} = s_j \mid X_k = s_i, X_{k-1} = s_h, \dots) = P(X_{k+1} = s_j \mid X_k = s_i)$$
+
+
+These transition probabilities are organized into a square Transition Probability Matrix, denoted as $\Pi$ (or $P$). 
+
+$$\Pi = [p_{ij}] \quad \text{where} \quad p_{ij} = P(M_j(k) \mid M_i(k-1))$$
+
+For a 2-state system, it looks like this:
+
+$$\Pi = \begin{bmatrix} p_{11} & p_{12} \\ p_{21} & p_{22} \end{bmatrix}$$
+
+- $p_{11}$ is the probability of staying in State 1.
+- $p_{12}$ is the probability of switching from State 1 to State 2.
+- Because the system must be in one of the states at the next time step, every row in a Markov matrix must sum to exactly 1.0. ($p_{11} + p_{12} = 1.0$).
+
+In the Interacting Multiple Model (IMM) architecture, we assume the target's decision to maneuver is a Markov Process. The target is in a specific kinematic "mode" $M$ (e.g., $M_1$ = Constant Velocity, $M_2$ = High-Agility Turn).
+
+
+**Application in Target Tracking**
+
+
+In the IMM-CKF architecture, we are running multiple kinematic models simultaneously (e.g., a Constant Velocity (CV) model and a Coordinated Turn (CT) model). The IMM uses a Markov Process to govern how the filter switches between these physical models.
+
+
+To see exactly how the Markov Transition Matrix ($\Pi$) controls the tracking filter, let’s walk through a single frame of video (one time step, $k$) using concrete numbers.
+
+**0. The Initial State (Frame $k-1$):**
+
+In the previous frame, the drone was flying straight. Our filter was highly confident it was in CV mode
+
+- Previous Probabilities: $\mu_1 = 0.80$ (80% CV), $\mu_2 = 0.20$ (20% CT).
+- Previous State Estimates (Simplified to 1D Velocity for this example): $\hat{x}_1 = 100$ m/s, $\hat{x}_2 = 90$ m/s.
+
+
+**1. Defining the "Inertia" ($\Pi$ Matrix)**
+
+As an engineer, you define the Transition Matrix to give the target physical inertia. For example:
+- State 1 = Constant Velocity (CV)
+- State 2 = Coordinated Turn (CT)
+
+You might define your $\Pi$ matrix as:
+
+$$\Pi = \begin{bmatrix} 0.95 & 0.05 \\ 0.10 & 0.90 \end{bmatrix}$$
+
+- Row 1 means: "If the drone is flying straight, there is a 95% chance it will keep flying straight, and a 5% chance it will initiate a turn."
+- Row 2 means: "If the drone is actively turning, there is a 90% chance it will keep turning, and a 10% chance it will flatten out into straight flight."
+
+
+**2. The Interaction Step (Mixing)**
+
+Before the visual measurements even arrive, the IMM uses the Markov matrix to mix the tracking data. It calculates the Mixing Probabilities ($\mu_{i|j}$), which ask: "Given that we end up in Mode $j$, what is the probability we came from Mode $i$?"
+
+$$\mu_{i|j} = \frac{1}{\bar{c}_j} p_{ij} \mu_i$$
+
+Where $\mu_i$ is the current probability of the model from the previous frame, $p_{ij}$ is the Markov transition scalar, and $\bar{c}_j$ is a normalizer.
+
+The filter then calculates a "mixed" initial state vector and covariance matrix for every model. This prevents the CT model from losing track of the target while it sits idle during long periods of straight flight.
+
+
+A. Calculate the Predicted Mode Probabilities ($\bar{c}_j$):
+
+What is the prior probability of being in each mode today, based purely on yesterday's modes and our Markov matrix?
+
+$$\bar{c}_1 = (p_{11} \times \mu_1) + (p_{21} \times \mu_2) = (0.95 \times 0.80) + (0.10 \times 0.20) = 0.76 + 0.02 = \mathbf{0.78}$$
+$$\bar{c}_2 = (p_{12} \times \mu_1) + (p_{22} \times \mu_2) = (0.05 \times 0.80) + (0.90 \times 0.20) = 0.04 + 0.18 = \mathbf{0.22}$$
+
+(Note: $0.78 + 0.22 = 1.0$. The math holds).
+
+B. Calculate the Mixing Weights ($\mu_{i|j}$):
+
+If we end up in Model 1 today, how much of yesterday's Model 1 and Model 2 should we mix into it?
+
+$$\mu_{1|1} = (0.95 \times 0.80) / 0.78 = \mathbf{0.974}$$
+$$\mu_{2|1} = (0.10 \times 0.20) / 0.78 = \mathbf{0.026}$$
+
+C. Calculate the Mixed Initial States:
+
+We blend the kinematic states together. The new starting velocity for Model 1 is heavily weighted by its own history, but it absorbs a tiny bit (2.6%) of Model 2's history.
+
+$$\hat{x}_{01} = (0.974 \times 100) + (0.026 \times 90) = \mathbf{99.74 \text{ m/s}}$$
+
+(The CKF Covariance matrices are mixed using similar weighted math, pooling their uncertainties together).
+
+
+**3. The Filtering Step (CKF)**
+
+The individual Cubature Kalman Filters now run independently. The CV model predicts a straight line; the CT model predicts a curve. Both generate cubature points and compare them to the incoming visual bounding box. Each filter calculates its own Likelihood ($\Lambda_j$)—essentially, how well its prediction matched reality.
+
+Now, the two separate Cubature Kalman Filters run their standard prediction and update steps using the newly mixed initial states.
+
+Let's assume the drone just executed a violent evasive turn.
+
+- The CV Filter predicts the drone kept flying straight. It compares its prediction to the new camera bounding box. The error is massive. It outputs a tiny Measurement Likelihood: $\Lambda_1 = \mathbf{0.01}$.
+- The CT Filter predicts a curve. It compares its prediction to the camera box. It's a very close match! It outputs a high Measurement Likelihood: $\Lambda_2 = \mathbf{0.40}$.
+
+Let's say the filters output their newly calculated velocities as $\hat{x}_{new,1} = 95$ m/s and $\hat{x}_{new,2} = 85$ m/s.
+
+
+**4. The Model Probability Update**
+
+This is where Bayes' Theorem and the Markov process meet. The overall probability of each mode ($\mu_j$) is updated by multiplying its Markov-predicted likelihood ($\bar{c}_j$) by its visual measurement likelihood ($\Lambda_j$):
+
+$$\mu_j = \frac{1}{c} \Lambda_j \bar{c}_j$$
+
+If the target executes a violent maneuver, the CV model's visual likelihood drops to zero. The CT model's likelihood spikes. The IMM instantly shifts the dominant probability $\mu$ to the CT model, and the final combined output trajectory curves perfectly with the target.
+
+This is where Bayes' Theorem executes the mode switch. We update the overall probability of each model by multiplying the Markov Prediction ($\bar{c}$) by the Visual Likelihood ($\Lambda$).
+
+A. Multiply Prior $\times$ Likelihood:
+
+$$\mu_1^* = \Lambda_1 \times \bar{c}_1 = 0.01 \times 0.78 = \mathbf{0.0078}$$
+$$\mu_2^* = \Lambda_2 \times \bar{c}_2 = 0.40 \times 0.22 = \mathbf{0.0880}$$
+
+B. Normalize (Calculate Evidence $c$):
+
+$$c = 0.0078 + 0.0880 = \mathbf{0.0958}$$
+
+C. The Final Mode Probabilities:
+
+$$\mu_1 = 0.0078 / 0.0958 = \mathbf{0.081} (8.1\% CV) $$
+$$\mu_2 = 0.0880 / 0.0958 = \mathbf{0.919} (91.9\% CT) $$
+
+The Engineering Result: In a single frame, the system mathematically realized the target was maneuvering. The Markov transition matrix allowed the probability to seamlessly violently flip from 80\% CV to 91.9\% CT without resetting the tracking pipeline
+
+**5. Estimate Combination**
+
+The final output of the IMM—the data actually sent to the weapons system or gimbal—is a weighted sum of the two filters, governed by our new mode probabilities.
+
+
+$$\hat{x}_{final} = (\mu_1 \times \hat{x}_{new,1}) + (\mu_2 \times \hat{x}_{new,2})$$
+$$\hat{x}_{final} = (0.081 \times 95) + (0.919 \times 85)$$
+$$\hat{x}_{final} = 7.695 + 78.115 = \mathbf{85.81 \text{ m/s}}$$
+
+Because the probability flipped to 91.9% CT, the final system output almost entirely trusts the Coordinated Turn model's estimate, perfectly adapting to the evasive maneuver.
+
+
+
+
+**C++ Implementation: IMM Markov Mixing**
+
+```C++
+#include <Eigen/Dense>
+#include <iostream>
+
+using namespace Eigen;
+
+class MarkovProcess {
+public:
+    // Calculates the predicted mode probabilities based on the Markov Transition Matrix
+    // current_probs: The likelihood of each mode from the previous frame
+    // transition_matrix: The Pi matrix defining the maneuver inertia
+    static VectorXd predictModeProbabilities(const VectorXd& current_probs, 
+                                             const MatrixXd& transition_matrix) {
+        
+        // Ensure inputs are valid
+        if (current_probs.rows() != transition_matrix.rows()) {
+            throw std::invalid_argument("Dimension mismatch in Markov mixing.");
+        }
+
+        // The Markov prediction is a simple matrix-vector multiplication
+        // mu_predicted = Pi^T * mu_current
+        VectorXd predicted_probs = transition_matrix.transpose() * current_probs;
+        
+        // Normalize to ensure total probability strictly equals 1.0
+        double sum = predicted_probs.sum();
+        if (sum > 0) {
+            predicted_probs /= sum;
+        }
+        
+        return predicted_probs;
+    }
+};
+```
 
 # Part II: Dynamic Systems and The Optimal Estimator {-}
 
@@ -799,6 +1105,426 @@ public:
 ## Deploying complex estimators on embedded systems.
 
 ## Exploiting parallelization for matrix operations.
+
+
+# Appendix {-}
+
+# The square root of a matrix and Cholesky decomposition 
+
+**The square root of a matrix**
+
+A Matrix $B$ is a square root of a matrix $A$ if :
+
+$$A = BB$$
+
+The equation above can have several possible solutions, and there are different
+computation methods for finding the square root of a matrix.
+
+However, in the context of state estimation, Uncentenced Kalman Filter(UKF) and the Cubature Kalman Filter (CKF), when we speak of the "square root" of a Covariance Matrix ($P$), we are usually referring to a specific spatial factorization. Because a covariance matrix is symmetric, we are looking for a matrix $S$ such that:
+$$P = S S^T$$
+
+Where $S^T$ is the transpose of $S$. While there are many ways to find an $S$ that satisfies this equation (such as Singular Value Decomposition), the most computationally efficient and numerically stable method for tracking filters is the Cholesky Decomposition.
+
+
+
+**Positive and semi-definite Matrix Cholesky decoposition**
+
+Before we can decompose a matrix using the Cholesky algorithm, the matrix must satisfy a strict mathematical condition: it must be symmetric and positive definite (or positive semi-definite).
+
+**1. The Mathematical Definition**
+
+A symmetric $n \times n$ matrix $A$ is Positive Definite if, for any non-zero real column vector $x$, the following holds true:
+$$x^T A x > 0$$
+
+**2. The Physical Tracking Definition**
+
+In target tracking, the matrix $A$ represents our State Covariance Matrix ($P$). The diagonals of $P$ are the variances of our state variables (position, velocity, etc.).
+
+Because variance represents physical uncertainty (standard deviation squared, $\sigma^2$), it is physically impossible to have "negative uncertainty." Therefore, a valid covariance matrix will always be positive semi-definite. If numerical floating-point errors cause an eigenvalue to slip below zero, the matrix loses its positive definiteness, and algorithms attempting to find its square root will fail mathematically, returning imaginary numbers (NaNs in C++).
+
+
+
+## Theorem: Cholesky Decomposition Proof and Derivation**
+
+Let $A$ be an $n \times n$ symmetric, positive-definite matrix. There exists a unique lower triangular matrix $L$ with strictly positive diagonal entries ($l_{ii} > 0$) such that 
+
+$$A = L L^T$$
+
+A lower triangular matrix is simply a matrix where all entries above the main diagonal are zero.Now we use mathematical induction to proof this Theorem.
+
+**1. The Base Case ($n=1$)**
+
+Let $A$ be a $1 \times 1$ matrix, so $A = [a_{11}]$.
+Because $A$ is positive-definite, for any non-zero vector $x$ (which in this case is a scalar $x \neq 0$), $x^T A x > 0$.
+
+If we set $x = 1$, then $1 \cdot a_{11} \cdot 1 = a_{11} > 0$.
+We seek a $1 \times 1$ lower triangular matrix $L = [l_{11}]$ such that $A = L L^T$.
+
+$$[a_{11}] = [l_{11}] [l_{11}] \implies a_{11} = l_{11}^2$$
+
+Since $a_{11} > 0$, there exists a unique, strictly positive real number $l_{11} = \sqrt{a_{11}}$. Thus, the theorem holds for $n=1$.
+
+**2. The Inductive Hypothesis**
+
+Assume that the theorem holds for all symmetric, positive-definite matrices of size $k \times k$. This means any $k \times k$ positive-definite matrix can be uniquely decomposed into a lower triangular matrix times its transpose.
+
+
+**3. The Inductive Step ($n=k+1$)**
+
+Now consider a $(k+1) \times (k+1)$ symmetric, positive-definite matrix $A$. We partition $A$ into smaller block matrices:
+$$A = \begin{bmatrix} A_{11} & a_{12} \\ a_{12}^T & a_{22} \end{bmatrix}$$
+
+Where:
+- $A_{11}$ is a $k \times k$ matrix.
+- $a_{12}$ is a $k \times 1$ column vector.
+- $a_{22}$ is a scalar (a $1 \times 1$ matrix).
+
+**Step A: Establishing $A_{11}$ is Positive-Definite**
+
+Because $A$ is symmetric and positive-definite, any principal submatrix of $A$ must also be symmetric and positive-definite. Therefore, $A_{11}$ is symmetric and positive-definite.
+
+By our inductive hypothesis, because $A_{11}$ is a $k \times k$ positive-definite matrix, there exists a unique $k \times k$ lower triangular matrix $L_{11}$ with positive diagonals such that:$$A_{11} = L_{11} L_{11}^T$$
+
+**Step B: Constructing $L$**
+
+We want to find a $(k+1) \times (k+1)$ lower triangular matrix $L$ partitioned in the same way as $A$:
+$$L = \begin{bmatrix} L_{11} & 0 \\ l_{21}^T & l_{22} \end{bmatrix}$$
+Where:
+
+- $L_{11}$ is the $k \times k$ matrix from our inductive hypothesis.
+- $l_{21}$ is a $k \times 1$ column vector.
+- $l_{22}$ is a strictly positive scalar.
+
+Let's compute $L L^T$:
+
+$$L L^T = \begin{bmatrix} L_{11} & 0 \\ l_{21}^T & l_{22} \end{bmatrix} \begin{bmatrix} L_{11}^T & l_{21} \\ 0 & l_{22} \end{bmatrix} = \begin{bmatrix} L_{11} L_{11}^T & L_{11} l_{21} \\ l_{21}^T L_{11}^T & l_{21}^T l_{21} + l_{22}^2 \end{bmatrix}$$
+
+
+**Step C: Equating $L L^T$ to $A$**
+
+
+By setting $L L^T$ equal to our partitioned $A$, we get a system of equations:
+
+1  $L_{11} L_{11}^T = A_{11}$  
+(This is already satisfied by our inductive hypothesis).  
+
+2  $L_{11} l_{21} = a_{12}$
+
+Because $L_{11}$ is a lower triangular matrix with strictly positive diagonal entries, its determinant (the product of its diagonals) is non-zero. This means $L_{11}$ is invertible. Therefore, we can uniquely solve for the vector $l_{21}$:
+
+$$l_{21} = L_{11}^{-1} a_{12}$$
+
+3  $l_{21}^T l_{21} + l_{22}^2 = a_{22}$
+We need to solve for the scalar $l_{22}$:
+
+$$l_{22}^2 = a_{22} - l_{21}^T l_{21}$$
+
+
+**Step D: Proving $l_{22}$ Exists and is Unique**
+
+For $l_{22}$ to be a unique, strictly positive real number, we must prove that $(a_{22} - l_{21}^T l_{21}) > 0$.
+
+Let's construct a specific $(k+1) \times 1$ test vector $x$:
+
+$$x = \begin{bmatrix} y \\ -1 \end{bmatrix}$$
+
+Where $y$ is defined as $y = A_{11}^{-1} a_{12}$.
+
+Because $A$ is positive-definite, $x^T A x > 0$ for any non-zero vector $x$. Let's evaluate this:
+
+$$x^T A x = \begin{bmatrix} y^T & -1 \end{bmatrix} \begin{bmatrix} A_{11} & a_{12} \\ a_{12}^T & a_{22} \end{bmatrix} \begin{bmatrix} y \\ -1 \end{bmatrix}$$
+
+First, multiply the matrix $A$ by the vector $x$:
+
+$$\begin{bmatrix} A_{11} & a_{12} \\ a_{12}^T & a_{22} \end{bmatrix} \begin{bmatrix} y \\ -1 \end{bmatrix} = \begin{bmatrix} A_{11}y - a_{12} \\ a_{12}^T y - a_{22} \end{bmatrix}$$
+
+Substitute $y = A_{11}^{-1} a_{12}$ into the top row:
+
+$$A_{11}(A_{11}^{-1} a_{12}) - a_{12} = a_{12} - a_{12} = 0$$
+
+Now multiply by $x^T$:
+
+$$x^T A x = \begin{bmatrix} y^T & -1 \end{bmatrix} \begin{bmatrix} 0 \\ a_{12}^T y - a_{22} \end{bmatrix} = -1 \cdot (a_{12}^T y - a_{22}) = a_{22} - a_{12}^T y$$
+
+Substitute $y = A_{11}^{-1} a_{12}$ back into this result:
+
+$$x^T A x = a_{22} - a_{12}^T A_{11}^{-1} a_{12}$$
+
+Since $x^T A x > 0$, we now know that $a_{22} - a_{12}^T A_{11}^{-1} a_{12} > 0$.
+
+Finally, let's look back at our term $l_{21}^T l_{21}$ from Step C. Recall that $l_{21} = L_{11}^{-1} a_{12}$.
+
+$$l_{21}^T l_{21} = (L_{11}^{-1} a_{12})^T (L_{11}^{-1} a_{12}) = a_{12}^T (L_{11}^{-1})^T L_{11}^{-1} a_{12}$$
+
+Since $(L_{11}^{-1})^T L_{11}^{-1} = (L_{11} L_{11}^T)^{-1} = A_{11}^{-1}$, we get:
+
+$$l_{21}^T l_{21} = a_{12}^T A_{11}^{-1} a_{12}$$
+
+Therefore, substituting this back into our equation for $l_{22}^2$:
+
+$$l_{22}^2 = a_{22} - a_{12}^T A_{11}^{-1} a_{12}$$
+
+
+Since we just proved that this exact expression is strictly greater than zero, $l_{22}^2 > 0$. Thus, $l_{22} = \sqrt{a_{22} - l_{21}^T l_{21}}$ exists and is a unique, strictly positive real number.
+
+**Conclusion**
+
+By the principle of mathematical induction, because the theorem holds for $n=1$, and assuming it holds for $k$ guarantees it holds for $k+1$, we conclude that every symmetric, positive-definite matrix can be uniquely factored into $A = L L^T$.
+
+
+## Algorithm: Cholesky Decomposition
+
+A lower triangular matrix is simply a matrix where all entries above the main diagonal are zero.
+To showcase how this factorization is deterministically achieved, let us manually expand the equation for a $3 \times 3$ matrix.Let the known symmetric covariance matrix be $A$:
+$$A = \begin{bmatrix} a_{11} & a_{21} & a_{31} \\ a_{21} & a_{22} & a_{32} \\ a_{31} & a_{32} & a_{33} \end{bmatrix}$$
+
+(Note: Because $A$ is symmetric, $a_{12} = a_{21}$, $a_{13} = a_{31}$, etc.)
+
+We want to find the unknown lower triangular matrix $L$:
+
+$$L = \begin{bmatrix} l_{11} & 0 & 0 \\ l_{21} & l_{22} & 0 \\ l_{31} & l_{32} & l_{33} \end{bmatrix}$$
+
+And its transpose $L^T$:
+
+$$L^T = \begin{bmatrix} l_{11} & l_{21} & l_{31} \\ 0 & l_{22} & l_{32} \\ 0 & 0 & l_{33} \end{bmatrix}$$
+
+If we physically multiply $L \times L^T$, we get:
+
+$$L L^T = \begin{bmatrix} l_{11}^2 & l_{11}l_{21} & l_{11}l_{31} \\ l_{21}l_{11} & l_{21}^2 + l_{22}^2 & l_{21}l_{31} + l_{22}l_{32} \\ l_{31}l_{11} & l_{31}l_{21} + l_{32}l_{22} & l_{31}^2 + l_{32}^2 + l_{33}^2 \end{bmatrix}$$
+
+Because $A = L L^T$, we can now set the elements of our multiplied matrix directly equal to the elements of $A$ and solve for the unknown $l$ values recursively, starting from the top-left corner.
+
+**Step 1: Solve the first column**
+
+ $$a_{11} = l_{11}^2 \implies l_{11} = \sqrt{a_{11}}$$
+ $$a_{21} = l_{21}l_{11} \implies l_{21} = \frac{a_{21}}{l_{11}}$$
+ $$a_{31} = l_{31}l_{11} \implies l_{31} = \frac{a_{31}}{l_{11}}$$
+
+**Step 2: Solve the seconde column**
+
+$$a_{22} = l_{21}^2 + l_{22}^2 \implies l_{22} = \sqrt{a_{22} - l_{21}^2}$$
+$$a_{32} = l_{21}l_{31} + l_{22}l_{32} \implies l_{32} = \frac{a_{32} - l_{21}l_{31}}{l_{22}}$$
+
+
+**Step 3: Solve the third column**
+
+$$a_{33} = l_{31}^2 + l_{32}^2 + l_{33}^2 \implies l_{33} = \sqrt{a_{33} - l_{31}^2 - l_{32}^2}$$
+
+**The General Algorithm**
+
+By recognizing the pattern in the algebraic proof above, we can abstract this into a set of generalized equations that a computer can run for an $n \times n$ matrix.For the diagonal elements ($j = i$):
+For the diagonal elements ($j = i$):
+
+
+$$l_{jj} = \sqrt{a_{jj} - \sum_{k=1}^{j-1} l_{jk}^2}$$
+
+For the off-diagonal elements ($i > j$):
+
+$$l_{ij} = \frac{1}{l_{jj}} \left( a_{ij} - \sum_{k=1}^{j-1} l_{ik} l_{jk} \right)$$
+
+
+**Why Cholesky for the IMM-CKF?**
+
+
+In the Cubature Kalman Filter, we must generate $2n$ cubature points at every single time step for every single active IMM model. To do this, we need the matrix "square root" of the predicted state covariance matrix $P$.
+
+Using the Cholesky decomposition to find $P = L L^T$ is the premier choice for embedded edge engineering for two reasons:
+
+- **Computational Efficiency**: Standard matrix square root algorithms (like SVD or eigenvalue decomposition) have high computational overhead. Because Cholesky exploits the inherent symmetry of the covariance matrix and only solves for half the matrix (the lower triangle), it requires approximately half the floating-point operations ($O(n^3/3)$).
+
+- **Deterministic Point Generation**: Multiplying our standard unit vectors by the lower triangular matrix $L$ cleanly scales and rotates our cubature points directly along the principal axes of the target's uncertainty ellipse, ensuring mathematically stable propagation through non-linear measurement models.
+
+# Expectation Algebra and Covariance Propagation
+
+To understand why the standard Kalman filter equations take the shape they do, one must understand how expectation (the expected value) acts as a mathematical operator.
+
+**1. Linearity of Expectation**
+
+The Expectation operator $E[\cdot]$ is perfectly linear. For any random variable $\mathbf{x}$, constant matrix $A$, and constant vector $B$:
+
+$$E[A\mathbf{x} + B] = A E[\mathbf{x}] + B$$
+
+
+**2. Definition of Covariance**
+
+The covariance matrix $P$ of a random variable $\mathbf{x}$ with mean $\mu = E[\mathbf{x}]$ is defined as the expected value of the outer product of its deviations:
+
+$$Cov(\mathbf{x}) = P = E[(\mathbf{x} - \mu)(\mathbf{x} - \mu)^T]$$
+
+**3. The Linear Transformation Proof**
+
+In tracking, our kinematic equations (like the Constant Velocity model) apply a linear transformation to our state vector to predict the future:
+
+$$\mathbf{x}_{k+1} = F \mathbf{x}_k + \mathbf{w}$$
+
+Where $F$ is the transition matrix and $\mathbf{w}$ is zero-mean process noise ($E[\mathbf{w}] = 0$) with a covariance of $Q$.
+
+**Theorem**: If a random variable $\mathbf{x}$ undergoes a linear transformation $\mathbf{y} = F\mathbf{x} + \mathbf{w}$, the covariance of $\mathbf{y}$ is $F P F^T + Q$.
+
+**Proof:**
+
+First, find the mean of our new variable $\mathbf{y}$. Let the mean of $\mathbf{x}$ be $\mu_x$.
+
+$$\mu_y = E[\mathbf{y}] = E[F\mathbf{x} + \mathbf{w}]$$
+
+By linearity of expectation:
+
+$$\mu_y = F E[\mathbf{x}] + E[\mathbf{w}] = F\mu_x + 0$$
+
+
+Now, apply the definition of covariance to $\mathbf{y}$:
+
+$$Cov(\mathbf{y}) = E[(\mathbf{y} - \mu_y)(\mathbf{y} - \mu_y)^T]$$
+
+Substitute the definitions of $\mathbf{y}$ and $\mu_y$:
+
+$$Cov(\mathbf{y}) = E[(F\mathbf{x} + \mathbf{w} - F\mu_x)(F\mathbf{x} + \mathbf{w} - F\mu_x)^T]$$
+$$Cov(\mathbf{y}) = E[(F(\mathbf{x} - \mu_x) + \mathbf{w})(F(\mathbf{x} - \mu_x) + \mathbf{w})^T]$$
+
+Expand the outer product $(a+b)(a+b)^T = aa^T + ab^T + ba^T + bb^T$:
+
+$$Cov(\mathbf{y}) = E[ F(\mathbf{x} - \mu_x)(\mathbf{x} - \mu_x)^TF^T \quad + \quad F(\mathbf{x} - \mu_x)\mathbf{w}^T \quad + \quad \mathbf{w}(\mathbf{x} - \mu_x)^TF^T \quad + \quad \mathbf{w}\mathbf{w}^T ]$$
+
+Apply the expectation operator linearly across the terms. Because the state estimate error $(\mathbf{x} - \mu_x)$ and the random process noise $\mathbf{w}$ are statistically independent, the expectation of their cross-products is zero: $E[F(\mathbf{x} - \mu_x)\mathbf{w}^T] = 0$.This leaves:
+
+$$Cov(\mathbf{y}) = F \cdot E[(\mathbf{x} - \mu_x)(\mathbf{x} - \mu_x)^T] \cdot F^T + E[\mathbf{w}\mathbf{w}^T]$$
+
+Recognizing the original definitions of $P$ and $Q$:
+
+$$Cov(\mathbf{y}) = F P F^T + Q$$
+
+This proof forms the mathematical basis for the Prediction Step in every linear and extended Kalman Filter ever written.
+
+
+# The Gaussian Multiplication Proof and the Origins of the Kalman Gain
+
+In Chapter 4, we stated that Bayes' Theorem operates by multiplying the Prior probability distribution (our kinematic prediction) by the Likelihood distribution (our sensor measurement). We also stated that because both of these are Gaussian (Normal) distributions, multiplying them magically produces a third, narrower Gaussian distribution representing our updated estimate (the Posterior).
+
+But why does multiplying two bell curves create another perfect bell curve? And more importantly for an engineer, how does this algebra actually translate into code?
+
+
+By stepping through the algebraic proof of multiplying two 1D Gaussian distributions, we will witness the exact mathematical birth of the Kalman Gain ($K$) and the standard update equations used in every tracking filter.
+
+
+**1. Defining the Two Distributions**
+
+Let us define our two independent pieces of information as 1D Gaussian Probability Density Functions (PDFs):
+
+**A. The Prior (Our Physics Prediction)**
+
+- Mean (State Estimate): $\mu_1$
+- Variance (Uncertainty): $\sigma_1^2$
+
+$$p_{prior}(x) = \frac{1}{\sqrt{2\pi\sigma_1^2}} \exp\left( -\frac{(x - \mu_1)^2}{2\sigma_1^2} \right)$$
+
+**B. The Likelihood (Our Sensor Measurement)**
+
+- Mean (Measured Value): $\mu_2$
+- Variance (Sensor Noise): $\sigma_2^2$
+
+$$p_{likelihood}(x) = \frac{1}{\sqrt{2\pi\sigma_2^2}} \exp\left( -\frac{(x - \mu_2)^2}{2\sigma_2^2} \right)$$
+
+**2. Multiplying the Distributions**
+
+According to Bayes' theorem, to find our Posterior distribution, we multiply these two PDFs together.
+
+$$p_{posterior}(x) \propto p_{prior}(x) \cdot p_{likelihood}(x)$$
+
+When multiplying exponential functions, we simply add their exponents. We can safely ignore the scaling constants ($\frac{1}{\sqrt{2\pi\sigma^2}}$) for now, as they only serve to ensure the final curve's area equals 1.0. Let's focus entirely on the new exponent:
+
+$$\exp\left( -\frac{(x - \mu_1)^2}{2\sigma_1^2} \right) \cdot \exp\left( -\frac{(x - \mu_2)^2}{2\sigma_2^2} \right) = \exp\left( -\frac{1}{2} \left[ \frac{(x - \mu_1)^2}{\sigma_1^2} + \frac{(x - \mu_2)^2}{\sigma_2^2} \right] \right)$$
+
+Now, let's group these terms by the powers of $x$ (the $x^2$ terms, the $x$ terms, and the constants):
+
+$$x^2 \left( \frac{1}{\sigma_1^2} + \frac{1}{\sigma_2^2} \right) - 2x \left( \frac{\mu_1}{\sigma_1^2} + \frac{\mu_2}{\sigma_2^2} \right) + \left( \frac{\mu_1^2}{\sigma_1^2} + \frac{\mu_2^2}{\sigma_2^2} \right)$$
+
+**3. Expanding the Exponent**
+
+To prove this results in a new Gaussian, we need to manipulate the bracketed sum into the standard Gaussian form: $\frac{(x - \mu_{new})^2}{\sigma_{new}^2}$.
+
+Let's expand the quadratic terms inside the brackets:
+
+$$\frac{x^2 - 2\mu_1 x + \mu_1^2}{\sigma_1^2} + \frac{x^2 - 2\mu_2 x + \mu_2^2}{\sigma_2^2}$$
+
+Now, let's group these terms by the powers of $x$ (the $x^2$ terms, the $x$ terms, and the constants):
+
+$$x^2 \left( \frac{1}{\sigma_1^2} + \frac{1}{\sigma_2^2} \right) - 2x \left( \frac{\mu_1}{\sigma_1^2} + \frac{\mu_2}{\sigma_2^2} \right) + \left( \frac{\mu_1^2}{\sigma_1^2} + \frac{\mu_2^2}{\sigma_2^2} \right)$$
+
+
+**4. Completing the Square (Finding the New Mean and Variance)**
+
+We want our grouped equation to perfectly match the expanded form of our target Gaussian exponent:
+$$\frac{1}{\sigma_{new}^2} (x^2 - 2\mu_{new}x + \mu_{new}^2)$$
+
+By matching the coefficients of $x^2$, we can find our new variance ($\sigma_{new}^2$):
+$$\frac{1}{\sigma_{new}^2} = \frac{1}{\sigma_1^2} + \frac{1}{\sigma_2^2}$$
+
+Solving for $\sigma_{new}^2$:
+
+
+$$\sigma_{new}^2 = \frac{\sigma_1^2 \sigma_2^2}{\sigma_1^2 + \sigma_2^2}$$
+
+Next, by matching the coefficients of $x$, we can find our new mean ($\mu_{new}$):
+
+$$\frac{\mu_{new}}{\sigma_{new}^2} = \frac{\mu_1}{\sigma_1^2} + \frac{\mu_2}{\sigma_2^2}$$
+
+
+Substitute our newly found $\sigma_{new}^2$ and solve for $\mu_{new}$:
+
+$$\mu_{new} = \left( \frac{\sigma_1^2 \sigma_2^2}{\sigma_1^2 + \sigma_2^2} \right) \left( \frac{\mu_1 \sigma_2^2 + \mu_2 \sigma_1^2}{\sigma_1^2 \sigma_2^2} \right)$$
+
+The cross-terms cancel out, leaving:
+
+
+$$\mu_{new} = \frac{\mu_1 \sigma_2^2 + \mu_2 \sigma_1^2}{\sigma_1^2 + \sigma_2^2}$$
+
+We have now mathematically proven that multiplying two Gaussians creates a new Gaussian, and we have the exact formulas for its Mean and Variance.
+
+
+**5. The Engineering Translation: The Birth of the Kalman Gain**
+
+
+While the formulas above are mathematically pure, they are not how engineers write tracking code. Let's rewrite our new Mean ($\mu_{new}$) formula by splitting it apart and rearranging it:
+
+$$\mu_{new} = \mu_1 \frac{\sigma_2^2}{\sigma_1^2 + \sigma_2^2} + \mu_2 \frac{\sigma_1^2}{\sigma_1^2 + \sigma_2^2}$$
+
+
+Through basic algebra, we can factor this into an "update" format—taking our original prediction ($\mu_1$) and adding a correction to it:
+
+
+$$\mu_{new} = \mu_1 + \left( \frac{\sigma_1^2}{\sigma_1^2 + \sigma_2^2} \right) (\mu_2 - \mu_1)$$
+
+Let's look at this equation through the lens of a tracking engineer:
+
+- $\mu_1$ is our Predicted State ($\hat{x}_{k|k-1}$)
+- $\mu_2$ is our Sensor Measurement ($z_k$)
+- $(\mu_2 - \mu_1)$ is our Prediction Error, or Innovation ($y_k$).
+
+What is that fractional term in the middle? That is the ratio of our prediction uncertainty to the total system uncertainty. It dictates exactly how much we should trust the sensor's innovation.
+
+This is the 1D Kalman Gain ($K$):
+
+$$K = \frac{\sigma_1^2}{\sigma_1^2 + \sigma_2^2}$$
+
+
+Substituting $K$ back into our equations yields the exact, universally recognized 1D Kalman Filter update equations:
+
+- State Update: $\hat{x}_{k|k} = \hat{x}_{k|k-1} + K(z_k - \hat{x}_{k|k-1})$
+- Covariance Update: $\sigma_{new}^2 = (1 - K)\sigma_1^2$
+
+**The Matrix Generalization**
+
+When scaling from a 1D example to the multi-dimensional tracking of a drone using an IMM-CKF, the algebra remains identical, but the notation shifts to linear algebra matrices.
+
+- The Prior Variance ($\sigma_1^2$) becomes the Predicted Covariance Matrix ($P$).
+- The Likelihood Variance ($\sigma_2^2$) becomes the Measurement Noise Matrix ($R$).
+- The addition in the denominator becomes a matrix inversion.
+
+Thus, the multidimensional Kalman Gain emerges directly from the algebra of Gaussian multiplication:
+
+$$K = P H^T (H P H^T + R)^{-1}$$
+
+(Note: The $H$ matrix simply projects the state space into the measurement space so the matrices align properly).
 
 
 
