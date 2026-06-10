@@ -1027,10 +1027,169 @@ public:
 
 
 #  Control System Fundamentals
+In Part I, we established the mathematical physics to model a target's trajectory (Chapter 3) and the probability theory to handle uncertainty (Chapter 4). Now, we must fuse these concepts into a unified framework that a computer can systematically solve.
+
+This framework is called **State-Space** Representation. It is the absolute core of modern control theory and the foundation upon which all optimal estimators—including the Kalman Filter family—are built.
+
+
 
 ## State-space representation of dynamic systems.
+**The Mathematical Concept**
+
+In classical control theory (like PID controllers), systems are often modeled using transfer functions in the frequency domain. However, modern aerospace tracking requires tracking multiple variables simultaneously (position, velocity, target size) in the time domain.
+
+State-space representation models a physical system as a set of first-order differential equations written in matrix-vector form. For a linear, continuous-time system, the state-space equations are:
+
+
+**1. The System Equation (How the target moves):**
+
+$$\dot{\mathbf{x}}(t) = A\mathbf{x}(t) + B\mathbf{u}(t) + \mathbf{w}(t)$$
+
+**2. The Measurement Equation (What the sensor sees):**
+
+$$\mathbf{z}(t) = H\mathbf{x}(t) + D\mathbf{u}(t) + \mathbf{v}(t)$$
+
+Where:
+- $\mathbf{x}$ is the State Vector (kinematics).
+- $\mathbf{u}$ is the Control Vector (steerage, throttle).
+- $\mathbf{w}$ is Process Noise and $\mathbf{v}$ is Measurement Noise.
+- $A, B, H,$ and $D$ are the system matrices mapping these relationships.
+
+To run this on a digital CPU, we must discretize these continuous equations (as discussed via Runge-Kutta in Chapter 3). The discrete-time linear state-space model used by the Kalman Filter is:
+
+$$\mathbf{x}_{k+1} = F\mathbf{x}_k + B\mathbf{u}_k + \mathbf{w}_k$$
+
+$$\mathbf{z}_k = H\mathbf{x}_k + \mathbf{v}_k$$
+
+(Note: $F$ is the discrete State Transition Matrix we derived earlier, and $H$ is the Measurement Matrix).
+
+
+**The Engineering Dilemma: Uncooperative Targets**
+
+If you are writing the navigation filter for your own UAV, the state-space model is fully realized. You know exactly what control inputs ($\mathbf{u}_k$) the autopilot is commanding.
+
+However, in target tracking, we are observing an uncooperative object. We do not have access to the enemy pilot's stick inputs or the drone's motor PWM signals. Therefore, the control term $B\mathbf{u}_k$ is completely unknown to us.
+
+To solve this, tracking engineers drop the $B\mathbf{u}_k$ term entirely. We are forced to assume that any intentional maneuver made by the target is just random statistical Process Noise ($\mathbf{w}_k$). This is exactly why tracking evasive targets is mathematically harder than navigating your own vehicle, and why we require the Interacting Multiple Model (IMM) to dynamically swap out $F$ matrices when a maneuver occurs.
+
+
+
+
+
 ## Observability and controllability.
+
+Before deploying an estimation algorithm, an engineer must answer two fundamental questions: Can I steer this system? And can I actually see what I am trying to track?
+
+**Controllability**
+
+Controllability asks: Given the system matrices $F$ and $B$, can we find a control sequence $\mathbf{u}$ that drives the system from any initial state to any desired final state in a finite amount of time? Because we drop the $B$ matrix in uncooperative tracking, controllability is primarily a concern for the interceptor's guidance algorithms, not the state estimator itself.
+
+**Observability**
+
+Observability is the single most critical theorem for a tracking engineer. It asks: Given a sequence of sensor measurements $\mathbf{z}_0, \mathbf{z}_1, \dots, \mathbf{z}_k$, can we uniquely deduce the internal state $\mathbf{x}_0$ of the system?If a system is unobservable, the Kalman Filter will mathematically fail to converge. The covariance matrix ($P$) for the unobservable states will grow toward infinity, eventually crashing the filter.
+
+**The Observability Theorem:**
+
+A discrete linear time-invariant system is completely observable if and only if the Observability Matrix ($\mathcal{O}$) has full column rank (rank $n$, where $n$ is the dimension of the state vector):
+
+
+$$\mathcal{O} = \begin{bmatrix} H \\ HF \\ HF^2 \\ \vdots \\ HF^{n-1} \end{bmatrix}$$
+
+**Deep Dive: The Observability Proof**
+
+If you want to understand exactly why multiplying the measurement matrix by the transition matrix $n-1$ times mathematically guarantees that a target can be tracked, the rigorous linear algebra proof demonstrating how full column rank allows for unique state recovery is provided in **Appendix: The Proof of Linear Observability**.
+
+**The Engineering Dilemma: The Monocular Camera**
+
+Observability is the exact mathematical reason why estimating 3D kinematics from a single 2D camera is so difficult.
+
+A monocular visual sensor only provides bearing angles (or 2D pixel coordinates). It provides absolutely zero range (depth) information. If an aircraft flies directly toward the camera, its bearing does not change. Because multiple physical states (a small drone close up, or a massive airliner far away) can produce the exact same sequence of pixel measurements, the 3D position is mathematically unobservable.
+
+
+To make the system observable, tracking engineers must inject prior knowledge. In our architecture, we include the target's physical Width ($W$) and Height ($H$) in our state vector. By utilizing a neural network bounding box, the change in pixel dimensions over time acts as a geometric proxy for range, fulfilling the rank requirement of the Observability Matrix and allowing the filter to converge on a 3D solution.
+
+
+
 ## Process noise vs. measurement noise.
+
+The entire soul of the Kalman Filter lives in the mathematical tension between two covariance matrices: the Process Noise ($Q$) and the Measurement Noise ($R$). Tuning these matrices is the most difficult art in state estimation.
+
+**Measurement Noise ($R$)**
+
+The $R$ matrix represents $\mathbf{v}_k$. It defines how much we distrust our sensors.
+
+- If you are fusing data from a heavily degraded IR microbolometer experiencing thermal blooming, the bounding boxes will flutter. You must inflate $R$.
+- **Engineering Reality**: $R$ is not just physical sensor noise; it also absorbs software pipeline errors. Consider a low-level memory bug—such as an incorrect bytes-per-pixel calculation when copying NV12 video buffer planes into your AI inference engine. This memory misalignment will warp or jitter the resulting bounding box. The tracking filter doesn't know you have a C++ pointer bug; it just sees massive statistical variance. Accurately modeling $R$ prevents these upstream pipeline glitches from immediately tearing your track apart.
+
+**Process Noise ($Q$)**
+
+The $Q$ matrix represents $\mathbf{w}_k$. It defines how much we distrust our internal kinematic physics (the $F$ matrix).
+
+- In a Constant Velocity (CV) model, we assume acceleration is zero. But physics dictates that wind gusts and minor pilot inputs exist. The $Q$ matrix injects just enough uncertainty into the velocities to keep the filter "open" to sudden changes.
+
+**The Tuning Dilemma**
+
+- **High $Q$, Low $R$**: The filter trusts the camera completely and ignores its own physics. The track will tightly follow the bounding box, but it will jitter violently with every pixel flutter.
+- **Low $Q$, High $R$**: The filter trusts its physics completely and ignores the camera. The track will be beautifully smooth, but if the target suddenly executes a sharp turn, the track will lag behind and completely miss the maneuver.
+
+
+**C++ Implementation: Constructing the Process Noise Matrix ($Q$)**
+
+
+Unlike $R$, which is often a static diagonal matrix, $Q$ must be derived analytically based on how continuous-time noise integrates over the discrete time step $\Delta t$. A standard approach for vision tracking is the Continuous White Noise Acceleration (CWNA) model, which assumes acceleration is a continuous white noise process with a spectral density magnitude of $q$.
+
+For a 1D position/velocity system, the discrete $Q$ matrix evaluates to:
+
+$$Q = q \begin{bmatrix} \frac{\Delta t^3}{3} & \frac{\Delta t^2}{2} \\ \frac{\Delta t^2}{2} & \Delta t \end{bmatrix}$$
+
+Here is how we map this efficiently into our 8-state CV model in C++:
+
+
+```C++
+#include <Eigen/Dense>
+#include <cmath>
+
+using namespace Eigen;
+
+class NoiseModels {
+public:
+    // Generates the Process Noise Covariance Matrix (Q) for the 8-state CV model
+    // dt: Time step
+    // noise_magnitude: The tuning parameter (q) dictating expected maneuverability
+    static MatrixXd getContinuousWhiteNoiseAccelerationQ(double dt, double noise_magnitude) {
+        MatrixXd Q = MatrixXd::Zero(8, 8);
+        
+        double dt2 = dt * dt;
+        double dt3 = dt2 * dt;
+        
+        // Positional Variance (dt^3 / 3)
+        double pos_var = noise_magnitude * (dt3 / 3.0);
+        // Velocity Variance (dt)
+        double vel_var = noise_magnitude * dt;
+        // Position-Velocity Covariance (dt^2 / 2)
+        double covar = noise_magnitude * (dt2 / 2.0);
+        
+        // X-Axis
+        Q(0, 0) = pos_var; Q(3, 3) = vel_var;
+        Q(0, 3) = covar;   Q(3, 0) = covar;
+        
+        // Y-Axis
+        Q(1, 1) = pos_var; Q(4, 4) = vel_var;
+        Q(1, 4) = covar;   Q(4, 1) = covar;
+        
+        // Z-Axis
+        Q(2, 2) = pos_var; Q(5, 5) = vel_var;
+        Q(2, 5) = covar;   Q(5, 2) = covar;
+        
+        // Bounding Box Width/Height (Typically assigned tiny static drift values)
+        Q(6, 6) = 1e-4; 
+        Q(7, 7) = 1e-4;
+        
+        return Q;
+    }
+};
+```
+
 
 #  The Bayesian Filtering Framework
 
@@ -1109,7 +1268,7 @@ public:
 
 # Appendix {-}
 
-# The square root of a matrix and Cholesky decomposition 
+# The square root of a matrix and Cholesky decomposition
 
 **The square root of a matrix**
 
@@ -1144,7 +1303,7 @@ Because variance represents physical uncertainty (standard deviation squared, $\
 
 
 
-## Theorem: Cholesky Decomposition Proof and Derivation**
+## Theorem: Cholesky Decomposition Proof and Derivation
 
 Let $A$ be an $n \times n$ symmetric, positive-definite matrix. There exists a unique lower triangular matrix $L$ with strictly positive diagonal entries ($l_{ii} > 0$) such that 
 
@@ -1334,7 +1493,7 @@ Using the Cholesky decomposition to find $P = L L^T$ is the premier choice for e
 
 - **Deterministic Point Generation**: Multiplying our standard unit vectors by the lower triangular matrix $L$ cleanly scales and rotates our cubature points directly along the principal axes of the target's uncertainty ellipse, ensuring mathematically stable propagation through non-linear measurement models.
 
-# Expectation Algebra and Covariance Propagation
+# Expectation Algebra and Covariance Propagation 
 
 To understand why the standard Kalman filter equations take the shape they do, one must understand how expectation (the expected value) acts as a mathematical operator.
 
@@ -1396,7 +1555,7 @@ $$Cov(\mathbf{y}) = F P F^T + Q$$
 This proof forms the mathematical basis for the Prediction Step in every linear and extended Kalman Filter ever written.
 
 
-# The Gaussian Multiplication Proof and the Origins of the Kalman Gain
+# The Gaussian Multiplication Proof and the Origins of the Kalman Gain 
 
 In Chapter 4, we stated that Bayes' Theorem operates by multiplying the Prior probability distribution (our kinematic prediction) by the Likelihood distribution (our sensor measurement). We also stated that because both of these are Gaussian (Normal) distributions, multiplying them magically produces a third, narrower Gaussian distribution representing our updated estimate (the Posterior).
 
@@ -1527,16 +1686,136 @@ $$K = P H^T (H P H^T + R)^{-1}$$
 (Note: The $H$ matrix simply projects the state space into the measurement space so the matrices align properly).
 
 
+# The Proof of Linear Observability 
+
+In Chapter 5.2, we stated that a discrete linear time-invariant (LTI) system is fully observable if its Observability Matrix ($\mathcal{O}$) has full column rank. Here is the formal mathematical proof.
+
+**1. Defining the System**
+
+Consider an unforced discrete LTI system (we drop the control matrix $B$ because it is known, and we drop the noise terms as observability is a deterministic property of the system matrices):
+
+$$\mathbf{x}_{k+1} = F \mathbf{x}_k$$
+
+$$\mathbf{z}_k = H \mathbf{x}_k$$
+
+Where $\mathbf{x} \in \mathbb{R}^n$ is the $n$-dimensional state vector, and $\mathbf{z} \in \mathbb{R}^m$ is the $m$-dimensional measurement vector.
 
 
-# Bibliography
-## Articles
+**2. Expanding the Measurements over Time**
+
+The goal of observability is to determine the initial state $\mathbf{x}_0$ strictly by looking at a sequence of measurements. Let us expand the first $n$ measurements in terms of $\mathbf{x}_0$:
+
+At $k=0$:
+$$\mathbf{z}_0 = H \mathbf{x}_0$$
+At $k=1$:
+$$\mathbf{x}_1 = F \mathbf{x}_0$$
+$$\mathbf{z}_1 = H \mathbf{x}_1 = H F \mathbf{x}_0$$
+
+At $k=2$:
+$$\mathbf{x}_2 = F \mathbf{x}_1 = F^2 \mathbf{x}_0$$
+$$\mathbf{z}_2 = H \mathbf{x}_2 = H F^2 \mathbf{x}_0$$
+
+Continuing this pattern up to $k = n-1$:
+
+$$\mathbf{z}_{n-1} = H F^{n-1} \mathbf{x}_0$$
+
+**3. Assembling the Matrix Equation**
+
+We can stack these individual measurement vectors into one massive column vector, denoted as $Z$:
+
+$$Z = \begin{bmatrix} \mathbf{z}_0 \\ \mathbf{z}_1 \\ \mathbf{z}_2 \\ \vdots \\ \mathbf{z}_{n-1} \end{bmatrix} = \begin{bmatrix} H \mathbf{x}_0 \\ H F \mathbf{x}_0 \\ H F^2 \mathbf{x}_0 \\ \vdots \\ H F^{n-1} \mathbf{x}_0 \end{bmatrix}$$
+
+Because $\mathbf{x}_0$ is a common factor in every term, we can factor it out of the matrix:
+
+
+$$Z = \begin{bmatrix} H \\ H F \\ H F^2 \\ \vdots \\ H F^{n-1} \end{bmatrix} \mathbf{x}_0$$
+
+
+
+The stacked matrix block on the right is exactly the Observability Matrix ($\mathcal{O}$):
+
+
+$$Z = \mathcal{O} \mathbf{x}_0$$
+
+
+(Note: Because we are stacking $n$ individual measurement vectors, each of dimension $m \times 1$, the resulting stacked vector $Z$ has dimensions $(mn) \times 1$, and the Observability Matrix $\mathcal{O}$ has dimensions $(mn) \times n$)
+
+**4. The Rank Condition Proof**
+
+We have now reduced the problem to a standard linear algebra equation: $A\mathbf{x} = \mathbf{b}$, where $A$ is our Observability Matrix $\mathcal{O}$, $\mathbf{x}$ is our unknown initial state $\mathbf{x}_0$, and $\mathbf{b}$ is our stacked measurements $Z$.
+
+
+By the fundamental theorem of linear algebra, to find a unique, exact solution for $\mathbf{x}_0$, the matrix $\mathcal{O}$ must have an inverse (or a left pseudo-inverse).
+
+(Note: Because the Observability matrix is a tall, rectangular matrix where the number of rows exceeds the number of columns, it cannot be inverted using a standard matrix inverse. Solving the equation $Z = \mathcal{O}\mathbf{x}_0$ requires computing the Left Pseudo-Inverse. For a complete mathematical breakdown of how to invert non-square matrices in tracking, see **Appendix: TWhat is the Pseudo-Inverse for Rectangular Matrices**).
+
+
+For $\mathcal{O}$ to have a left pseudo-inverse, its columns must be linearly independent. In other words, $\mathcal{O}$ must have full column rank. Because the state vector $\mathbf{x}_0$ has $n$ dimensions, $\mathcal{O}$ must have rank $n$.
+
+If the rank is strictly less than $n$, the system is underdetermined. The null space of $\mathcal{O}$ is non-empty, meaning there are infinite possible values of $\mathbf{x}_0$ that could produce the exact same sequence of measurements $Z$. The state is mathematically hidden from the sensor, proving the system is unobservable.
+
+
+(Why do we stop at $n-1$? By the Cayley-Hamilton theorem, any power of a matrix $F^k$ for $k \ge n$ can be expressed as a linear combination of its lower powers. Therefore, adding more measurements beyond $z_{n-1}$ provides no fundamentally new information to the rank of the matrix).
+
+
+
+# What is the Pseudo-Inverse for Rectangular Matrices
+
+For an $m \times n$ matrix $A$ to have a standard inverse, the very first and most absolute property it must have is that $m$ must equal $n$.
+
+In linear algebra, a true, two-sided inverse (where $A A^{-1} = I$ and $A^{-1} A = I$) only exists for square matrices.
+
+If the matrix is square ($n \times n$), it must possess several mathematical properties to be invertible. 
+
+However, in engineering, we constantly deal with rectangular matrices ($m \neq n$), which require a Pseudo-Inverse.Here is the exact breakdown of the properties required for both standard inverses and pseudo-inverses.
+
+**1. The Standard Inverse (Square Matrices: $m = n$)**
+
+If your matrix is square (e.g., a $4 \times 4$ State Transition Matrix $F$), it must be **non-singular** to have an inverse. A matrix is non-singular if it meets all of the following equivalent properties:
+
+- **Non-Zero Determinant**: $\det(A) \neq 0$. This is the fastest mathematical check.
+- **Full Rank**: The rank of the matrix must be $n$. This means all $n$ columns (and all $n$ rows) are linearly independent. None of them can be formed by adding or scaling the other columns.
+- **Empty Null Space**: The equation $A\mathbf{x} = 0$ has only one trivial solution: $\mathbf{x} = 0$. This means the matrix does not "crush" any vectors down to zero.
+- **Non-Zero Eigenvalues**: Every single eigenvalue of $A$ is strictly non-zero. (This links directly to why we regularize the Cholesky decomposition with epsilon if an eigenvalue hits zero!).
+
+**2. The Pseudo-Inverse (Rectangular Matrices: $m \neq n$)**
+
+If $m \neq n$, the system is either overdetermined (too many equations) or underdetermined (too many unknowns). It cannot have a standard inverse. Instead, we use the Moore-Penrose Pseudo-Inverse (often denoted as $A^+$).
+
+Whether it has a left or right pseudo-inverse depends entirely on its shape and its rank.
+
+
+**Case A: Tall Matrices ($m > n$) -> Requires a "Left Inverse"**
+
+This is an overdetermined system (more rows than columns). The Observability Matrix ($\mathcal{O}$) from our previous discussion is a classic example of a tall matrix.
+
+For a tall matrix to have a unique left inverse, it must have Full Column Rank.
+
+- **Property**: The rank must equal $n$ (the smaller dimension). All columns must be linearly independent.
+- **The Math**: The left pseudo-inverse is calculated as $A_{left}^+ = (A^T A)^{-1} A^T$.
+- **The Result**: Multiplying from the left yields the identity matrix: $A_{left}^+ A = I_n$.
+- **Engineering Meaning**: In tracking, this means you have enough unique sensor measurements to uniquely calculate a single, "best-fit" initial state using Least Squares.
+
+**Case B: Wide Matrices ($m < n$) -> Requires a "Right Inverse"**
+
+This is an underdetermined system (more columns than rows).
+
+For a wide matrix to have a right inverse, it must have Full Row Rank.
+
+- **Property**: The rank must equal $m$ (the smaller dimension). All rows must be linearly independent
+- **The Math**: The right pseudo-inverse is calculated as $A_{right}^+ = A^T (A A^T)^{-1}$.
+- **The Result**: Multiplying from the right yields the identity matrix: $A A_{right}^+ = I_m$.
+- **Engineering Meaning**: Because there are more variables than equations, there are infinite solutions. The right pseudo-inverse finds the specific solution that has the absolute smallest magnitude (minimum norm).
+
+
+# Bibliography {-}
+## Articles {-}
 
 [1] Arasaratnam, I., & Haykin, S. (2009).
 *Cubature Kalman Filters*.
 IEEE Transactions on Automatic Control.
 
-## Books
+## Books {-}
 
 [2] Simon, D. (2006).
 *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*.
