@@ -1,5 +1,5 @@
 ---
-title-meta: "Non-Linear Filtering for Target Tracking"
+title-meta: "Non-Linear Filtering for Vision-and-Telemetry-Based Target Tracking"
 author-meta: "Huiyuan Zang"
 date-meta: "June 2026"
 documentclass: book
@@ -9,9 +9,10 @@ classoption:
 fontsize: 11pt
 geometry:
   - margin=1in
-mainfont: DejaVu Serif
-sansfont: DejaVu Sans
+mainfont: TeX Gyre Pagella
+sansfont: TeX Gyre Heros
 monofont: DejaVu Sans Mono
+mathfont: TeX Gyre Pagella Math
 toc: true
 toc-depth: 3
 numbersections: true
@@ -23,7 +24,7 @@ citecolor: blue
 urlcolor: blue
 header-includes:
   - \usepackage{amsmath}
-  - \usepackage{amssymb}
+  - \usepackage{unicode-math}
   - \usepackage{amsthm}
   - \usepackage{mathtools}
   - \usepackage{graphicx}
@@ -47,7 +48,6 @@ include-before-body:
 include-after-body:
   - backmatter.tex
 ---
-
 
 # Preface {-}
 
@@ -94,7 +94,6 @@ Consider an interceptor toggling its payload from a high-resolution 1080p visibl
 
 
 This book bridges the gap between pure mathematics and these operational realities. We will build the IMM-CKF from the ground up, proving every equation, and translating those proofs into robust C++ architectures designed for strict Size, Weight, and Power (SWaP) constrained hardware.
-
 
 # Acknowledgments {-}
 
@@ -148,58 +147,6 @@ $$S_k = H_k P_k H_k^T + R_k$$
 
 Deriving the analytical Jacobian for a nested camera projection matrix (UAV chassis $\rightarrow$ gimbal $\rightarrow$ camera pinhole) results in massive, computationally fragile trigonometric chains. On SWaP-constrained edge devices, evaluating these long sine/cosine chains for every target, every frame, burns critical CPU cycles. Furthermore, if the target maneuvers rapidly, the first-order Taylor series approximation of the Jacobian fails, causing catastrophic linearization error and track divergence.
 
-## Numerical Integration and Cubature Rules
-
-**The Mathematical Concept**
-
-Because analytical Jacobians are dangerous in high-agility tracking, modern filtering seeks to avoid them entirely. Instead of linearizing the function, we want to calculate the true expected value of the non-linear function mathematically. This requires evaluating a Gaussian-weighted integral over the entire state space:
-
-$$I(f) = \int_{\mathbb{R}^n} f(\mathbf{x}) \exp(-\mathbf{x}^T \mathbf{x}) d\mathbf{x}$$
-
-Solving this integral analytically in real-time is impossible. The **Spherical-Radial Cubature** Rule provides a numerical approximation. It decomposes the multi-dimensional integral into a spherical integral (direction) and a radial integral (distance) [1]. By carefully selecting exactly $2n$ deterministic points (where $n$ is the state dimension), we can approximate the true integral with third-degree accuracy [1].
-
-**Application in Target Tracking (The CKF)**
-
-This integral is the beating heart of the Cubature Kalman Filter (CKF). Instead of differentiating the camera projection model, the CKF generates a set of 3D points representing the current uncertainty, pushes those specific points through the true non-linear camera projection model, and calculates the variance of the output.
-
-**C++ Implementation: Cubature Point Generation**
-
-In production code, generating these points must be done without dynamic memory allocation to ensure deterministic execution times in the main tracking loop. We utilize the Eigen library, a staple in high-performance C++ engineering.
-
-```C
-
-#include <Eigen/Dense>
-#include <vector>
-#include <cmath>
-
-using namespace Eigen;
-
-class CubatureMath {
-public:
-    // Generates 2n cubature points based on the state dimension (n)
-    // x: Current state vector
-    // P_sqrt: The lower triangular matrix from Cholesky decomposition of Covariance P
-    static MatrixXd generateCubaturePoints(const VectorXd& x, const MatrixXd& P_sqrt) {
-        int n = x.rows();
-        int num_points = 2 * n;
-        
-        // Pre-allocate the matrix to avoid heap fragmentation in the main loop
-        MatrixXd cubaturePoints(n, num_points);
-        
-        // The scaling factor for the spherical-radial rule is simply sqrt(n)
-        double scale = std::sqrt(static_cast<double>(n));
-
-        for (int i = 0; i < n; ++i) {
-            // Positive axis points
-            cubaturePoints.col(i) = x + scale * P_sqrt.col(i);
-            // Negative axis points
-            cubaturePoints.col(i + n) = x - scale * P_sqrt.col(i);
-        }
-
-        return cubaturePoints;
-    }
-};
-```
 
 ## Multivariate Taylor Series Expansion
 
@@ -266,6 +213,157 @@ public:
 };
 
 ```
+
+## Numerical Integration and Cubature Rules
+
+**The Mathematical Concept**
+
+Because analytical Jacobians are dangerous in high-agility tracking, modern filtering seeks to avoid them entirely. Instead of linearizing the function, we want to calculate the true expected value of the non-linear function mathematically. This requires evaluating a Gaussian-weighted integral over the entire state space:
+
+$$I(f) = \int_{\mathbb{R}^n} f(\mathbf{x}) \exp(-\mathbf{x}^T \mathbf{x}) d\mathbf{x}$$
+
+Solving this integral analytically in real-time is impossible. The **Spherical-Radial Cubature** Rule provides a numerical approximation. It decomposes the multi-dimensional integral into a spherical integral (direction) and a radial integral (distance) [1]. By carefully selecting exactly $2n$ deterministic points (where $n$ is the state dimension), we can approximate the true integral with third-degree accuracy [1].
+
+**Application in Target Tracking (The CKF)**
+
+This integral is the beating heart of the Cubature Kalman Filter (CKF). Instead of differentiating the camera projection model, the CKF generates a set of 3D points representing the current uncertainty, pushes those specific points through the true non-linear camera projection model, and calculates the variance of the output.
+
+
+## The Origins of Cubature: Spherical-Radial Integration
+
+In standard linear tracking, solving the Bayesian equations is clean and effortless. However, as we will explore in later chapters, when your target tracking pipeline incorporates non-linear camera geometry (such as perspective projections or trigonometric bearing angles), the recursive Bayesian integrals become mathematically unsolvable.
+
+When an equation cannot be solved analytically via calculus, the CPU must approximate it numerically.
+
+
+For decades, engineers relied on the **Extended Kalman Filter (EKF)**, which uses Jacobian matrices to forcibly flatten non-linear physics into linear tangents. For highly evasive targets, this forced linearization introduces massive truncation errors, causing the track to violently diverge.
+
+A more accurate alternative is the Particle Filter, which uses Monte Carlo integration. It floods the uncertainty space with thousands of randomly generated "particles" (points) to blindly map the curve. While highly accurate, pushing 5,000 particles through complex camera geometry at 30 frames per second will immediately overwhelm and melt the CPU of an edge-deployed UAV interceptor.
+
+We need a method that is as accurate as the Particle Filter, but as lightweight as the EKF. This is the birthplace of the **Cubature Kalman Filter (CKF)**.
+
+
+**The Geometric Solution**
+
+The CKF is built entirely upon a mathematical breakthrough known as the **Spherical-Radial Integration Rule**.
+
+Instead of generating thousands of random points, the Spherical-Radial rule proves that we can perfectly approximate the continuous integral of a Gaussian distribution by strategically selecting a tiny, deterministic set of points.
+
+Any standard multi-dimensional Gaussian integral can be converted from a Cartesian coordinate system $(\mathbf{X},\mathbf{Y},\mathbf{Z})$ into a spherical coordinate system. Once converted, the impossible integral beautifully fractures into two separate, solvable integrals:
+
+1. **The Spherical Integral**: An integral over the surface area of a unit sphere (accounting for direction).
+
+2. **The Radial Integral**: A 1D line integral from the center of the sphere outward to infinity (accounting for distance).
+
+**The Magic of 2n Points**
+
+By solving these two integrals using polynomial moment-matching, the math reveals a profound shortcut. To completely capture the behavior of a multi-dimensional Gaussian distribution up to its third statistical moment, we only need to evaluate points that rest exactly on the intersections of the state-space axes and the uncertainty sphere
+
+For an n-dimensional state space, there is one positive and one negative intersection per axis. Therefore, the CKF requires exactly $2n$ cubature points.
+
+
+If you are tracking an 8-state Constant Velocity model (Position, Velocity, and Bounding Box dimensions), you only need to push $2(8)=16$ points through your non-linear camera equations. This transforms an impossible calculus problem into 16 simple C++ function calls, providing near-optimal accuracy while remaining incredibly cache-friendly for edge hardware.
+
+> **Deep Dive: The Spherical-Radial Derivation**
+
+> We just stated that converting to spherical coordinates miraculously collapses an infinite Gaussian integral down to exactly $2n$ points. But how does the calculus actually prove this? And how do we prove that the radius of the points must be exactly $\sqrt{n}$ to perfectly capture the system's variance? For the rigorous mathematical proof involving Gaussian-Laguerre quadrature and moment-matching, refer to **Appendix: Derivation of the Spherical-Radial Cubature Rule**.
+
+
+**Engineering Example: Programming the Cubature Points**
+
+To understand why the Cubature Kalman Filter (CKF) is so powerful for edge computing, we must look at how simple it is to program. 
+
+Let us assume we are tracking a drone using a 4-dimensional state vector $\mathbf{x} = [X, Y, V_x, V_y]^T$. The target is currently flying with some kinematic uncertainty represented by our $4 \times 4$ covariance matrix $P$.
+
+The camera is about to take a picture. To predict what pixel bearing the camera will see, we must push our state through the highly non-linear measurement function $h(\mathbf{x}) = \arctan(Y/X)$. 
+
+Because the state space has $n=4$ dimensions, the Spherical-Radial Cubature rule dictates that we only need exactly $2(4) = 8$ cubature points to perfectly approximate this non-linear integral.
+
+**The Three-Step Algorithm:**
+
+1.  **Decompose:** We use the Cholesky decomposition to find the square root of the covariance matrix ($P = LL^T$). This gives us the mathematical "axes" of our uncertainty ellipsoid.
+   
+2.  **Generate:** We take the standard Cartesian unit vectors ($1$ and $-1$ for each dimension), scale them by $\sqrt{n}$, multiply them by $L$ to rotate them into our uncertainty space, and add them to our current state estimate $\mathbf{x}$.
+
+3.  **Evaluate:** We pass those 8 specific points through our $\arctan$ function and average the result.
+
+**C++ Implementation: Cubature Point Generation**
+
+Here is the exact C++ implementation using the Eigen linear algebra library. Notice how the terrifying non-linear calculus problem we discussed earlier is resolved with a simple for loop.
+
+```cpp
+#include <Eigen/Dense>
+#include <cmath>
+#include <iostream>
+
+using namespace Eigen;
+
+class CubatureMath {
+public:
+    // Generates the 2n Cubature points for a given state and covariance
+    // x: The current state vector (mean)
+    // P: The current state covariance matrix (uncertainty)
+    static MatrixXd generateCubaturePoints(const VectorXd& x, const MatrixXd& P) {
+        int n = x.size();
+        int num_points = 2 * n;
+        
+        // The spherical-radial scaling factor
+        double scale = std::sqrt(n);
+
+        // 1. Cholesky Decomposition (P = L * L^T)
+        // This calculates the lower-triangular matrix L
+        LLT<MatrixXd> lltOfP(P);
+        MatrixXd L = lltOfP.matrixL();
+
+        // Initialize a matrix to hold our points. 
+        // Each column will be one n-dimensional cubature point.
+        MatrixXd points(n, num_points);
+
+        // 2. Generate the 2n points
+        for (int i = 0; i < n; ++i) {
+            // Create a unit vector for the current axis
+            VectorXd u = VectorXd::Zero(n);
+            u(i) = 1.0;
+
+            // Positive intersection on the uncertainty sphere
+            points.col(i) = x + scale * L * u;
+
+            // Negative intersection on the uncertainty sphere
+            points.col(i + n) = x - scale * L * u;
+        }
+
+        return points;
+    }
+
+    // Pushes the generated points through a non-linear camera bearing function
+    static double predictNonLinearMeasurement(const MatrixXd& points) {
+        int num_points = points.cols();
+        double z_predicted = 0.0;
+
+        // 3. Evaluate the non-linear function for every point
+        for (int i = 0; i < num_points; ++i) {
+            // Extract the X and Y spatial coordinates from the point
+            double X = points(0, i);
+            double Y = points(1, i);
+            
+            // The uncorrupted non-linear geometry: h(x) = arctan(Y/X)
+            double bearing = std::atan2(Y, X);
+            
+            // Sum the results
+            z_predicted += bearing;
+        }
+
+        // The final predicted measurement is simply the weighted average 
+        // (divided by 2n) of all evaluated points.
+        return z_predicted / num_points;
+    }
+};
+
+```
+
+Look closely at the predictNonLinearMeasurement function. There are no Jacobian derivative matrices. There is no forced flattening of the camera geometry. If you want to change your sensor from a 2D camera to a 3D radar, you do not need to recalculate complex calculus derivatives by hand—you simply change the std::atan2 line to your new radar equation, and the Cubature Kalman Filter instantly adapts.
+
+
 # Linear Algebra for Systems
 
 Tracking algorithms are fundamentally exercises in linear algebra. Every prediction, measurement, and update is a matrix operation. To deploy an IMM-CKF on a modern embedded architecture (such as an NVIDIA Jetson Orin NX), an engineer must not only understand the mathematical identities but also how matrix shapes and memory bandwidth impact the overall processing pipeline.
@@ -308,7 +406,9 @@ To generate deterministic cubature points, the CKF requires calculating the "squ
 
 $$P = L L^T$$
 
-**Deep Dive: The Mathematical Proof** > > This chapter focuses on the application of Cholesky decomposition for edge hardware. However, understanding exactly why every symmetric, positive-definite matrix can be uniquely factored this way is a beautiful piece of linear algebra. If you are interested in the rigorous step-by-step mathematical derivation and the proof by induction, please refer to **Appendix: The Square Root of a Matrix and Cholesky Decomposition**.
+> **Deep Dive: The Mathematical Proof** 
+
+> This chapter focuses on the application of Cholesky decomposition for edge hardware. However, understanding exactly why every symmetric, positive-definite matrix can be uniquely factored this way is a beautiful piece of linear algebra. If you are interested in the rigorous step-by-step mathematical derivation and the proof by induction, please refer to **Appendix: The Square Root of a Matrix and Cholesky Decomposition**.
 
 **The Engineering Dilemma**
 
@@ -359,8 +459,6 @@ MatrixXd computeRobustCholesky(MatrixXd P) {
 ## Matrix inversion lemma (Woodbury identity) and proofs.
 
 **The Mathematical Concept**
-
-
 
 Inverting a matrix is one of the most computationally expensive operations in linear algebra ($O(n^3)$ complexity). The Woodbury matrix identity dictates that the inverse of a rank-k correction of a matrix can be computed by doing a rank-k correction to the inverse of the original matrix:
 
@@ -722,6 +820,7 @@ public:
 ```
 
 
+
 #  Probability Theory & Stochastic Processes
 
 If the kinematics in Chapter 3 described how a target should move, probability theory describes how it actually moves in a chaotic universe. Sensors suffer from thermal noise, wind shears alter flight paths, and uncooperative targets execute unpredictable maneuvers. To build an optimal estimator, we cannot rely on deterministic certainties; we must compute with probabilities.
@@ -792,13 +891,15 @@ Because the camera's curve (Likelihood) is narrower (meaning it has less varianc
 
 Furthermore, because we have successfully fused two independent sources of information, the new Posterior curve will be narrower and taller than both the Prior and the Likelihood. Mathematically, Bayes' theorem guarantees that fusing data always reduces overall system uncertainty.
 
-**Deep Dive: The Birth of the Kalman Gain**
+> **Deep Dive: The Birth of the Kalman Gain**
 
-We just stated that multiplying two Gaussian bell curves miraculously creates a third, perfectly shaped Gaussian curve. But why? And how does that relate to writing C++ tracking code?If you multiply the algebraic equations of these two curves, the resulting formula for the new Mean and Variance is exactly the 1D Kalman Filter Update Equation. For the step-by-step algebraic proof showing exactly how the Kalman Gain ($K$) is derived from this multiplication, refer to **Appendix: The Gaussian Multiplication Proof and the Origins of the Kalman Gain**.
+> We just stated that multiplying two Gaussian bell curves miraculously creates a third, perfectly shaped Gaussian curve. But why? And how does that relate to writing C++ tracking code?If you multiply the algebraic equations of these two curves, the resulting formula for the new Mean and Variance is exactly the 1D Kalman Filter Update Equation. For the step-by-step algebraic proof showing exactly how the Kalman Gain ($K$) is derived from this multiplication, refer to **Appendix: The Gaussian Multiplication Proof and the Origins of the Kalman Gain**.
 
 **The Engineering Dilemma (The Integration Problem)**
 
 The Evidence term $p(\mathbf{z})$ requires integrating the likelihood across the entire infinite state space: $p(\mathbf{z}) = \int p(\mathbf{z} \mid \mathbf{x}) p(\mathbf{x}) d\mathbf{x}$. For non-linear camera projections, this integral has no closed-form analytical solution. It is impossible to calculate on a CPU. This mathematical roadblock is exactly why the Cubature Kalman Filter uses numerical cubature points to approximate this integral, rather than attempting to solve Bayes' Theorem analytically.
+
+
 
 ## Expectation algebra
 
@@ -811,8 +912,10 @@ $$P = E[(\mathbf{x} - \hat{\mathbf{x}})(\mathbf{x} - \hat{\mathbf{x}})^T]$$
 
 Expectation is a linear operator. This means that if we apply a linear matrix transformation to our state (like multiplying our state by the State Transition Matrix $F$), the expectation flows through cleanly.
 
+> **Deep Drive: Expectation Algebra and Covariance Propagation** 
 
-(Note: The rigorous mathematical proof showing exactly how covariance propagates through linear matrices—resulting in the famous Kalman Filter equation $P_{k|k-1} = F P_{k-1} F^T + Q$—is fundamental to estimation theory. To keep this chapter focused on implementation, the complete derivation is provided in Appendix: Expectation Algebra and Covariance Propagation).
+> The rigorous mathematical proof showing exactly how covariance propagates through linear matrices—resulting in the famous Kalman Filter equation $P_{k|k-1} = F P_{k-1} F^T + Q$—is fundamental to estimation theory. To keep this chapter focused on implementation, the complete derivation is provided in **Appendix: Expectation Algebra and Covariance Propagation**.
+
 
 
 ## Gaussian distributions and their properties (multivariate normal distribution).
@@ -837,6 +940,7 @@ Where:
 
 **The Engineering Connection to Chapter 2**
 Look closely at the Gaussian equation above. To evaluate a target's likelihood, the CPU must calculate the determinant $|P|$ and the inverse $P^{-1}$. If floating-point drift causes your covariance matrix to lose positive definiteness (as discussed in Chapter 2.2), the determinant $|P|$ becomes negative. The term $\sqrt{|P|}$ then attempts to take the square root of a negative number, resulting in an immediate software crash. This proves why rigorous Cholesky regularization is non-negotiable in production tracking.
+
 
 
 ## Markov processes and transition probabilities.
@@ -1023,6 +1127,7 @@ public:
 };
 ```
 
+
 # Part II: Dynamic Systems and The Optimal Estimator {-}
 
 
@@ -1074,8 +1179,6 @@ To solve this, tracking engineers drop the $B\mathbf{u}_k$ term entirely. We are
 
 
 
-
-
 ## Observability and controllability.
 
 Before deploying an estimation algorithm, an engineer must answer two fundamental questions: Can I steer this system? And can I actually see what I am trying to track?
@@ -1095,9 +1198,9 @@ A discrete linear time-invariant system is completely observable if and only if 
 
 $$\mathcal{O} = \begin{bmatrix} H \\ HF \\ HF^2 \\ \vdots \\ HF^{n-1} \end{bmatrix}$$
 
-**Deep Dive: The Observability Proof**
+> **Deep Dive: The Observability Proof**
 
-If you want to understand exactly why multiplying the measurement matrix by the transition matrix $n-1$ times mathematically guarantees that a target can be tracked, the rigorous linear algebra proof demonstrating how full column rank allows for unique state recovery is provided in **Appendix: The Proof of Linear Observability**.
+> If you want to understand exactly why multiplying the measurement matrix by the transition matrix $n-1$ times mathematically guarantees that a target can be tracked, the rigorous linear algebra proof demonstrating how full column rank allows for unique state recovery is provided in **Appendix: The Proof of Linear Observability**.
 
 **The Engineering Dilemma: The Monocular Camera**
 
@@ -1107,6 +1210,7 @@ A monocular visual sensor only provides bearing angles (or 2D pixel coordinates)
 
 
 To make the system observable, tracking engineers must inject prior knowledge. In our architecture, we include the target's physical Width ($W$) and Height ($H$) in our state vector. By utilizing a neural network bounding box, the change in pixel dimensions over time acts as a geometric proxy for range, fulfilling the rank requirement of the Observability Matrix and allowing the filter to converge on a 3D solution.
+
 
 
 
@@ -1193,9 +1297,96 @@ public:
 
 #  The Bayesian Filtering Framework
 
+In Chapter 4, we explored Bayes' Theorem as a static concept—a way to fuse a single prediction with a single measurement. However, a target tracking system does not solve a single math problem; it processes a continuous, never-ending stream of video frames.
+
+To track a dynamic target, we must turn Bayes' Theorem into a continuous loop. This is the **Recursive Bayes Filter**. It is the theoretical heartbeat of every tracking architecture, from the simplest 1D Kalman Filter to the most advanced Interacting Multiple Model Cubature Kalman Filter (IMM-CKF).
+
+
 ## The recursive Bayes filter: Prediction and Update steps.
 
+The recursive framework operates on a simple philosophy: *Today's Posterior becomes tomorrow's Prior*. Instead of recalculating the target's state from the very beginning of the flight sequence every time a new frame arrives, the filter condenses all historical knowledge into the current state estimate, takes one step forward in time, and processes the new measurement.
+
+
+Let $\mathbf{Z}_k$​ denote the set of all sensor measurements from time $0$ up to time $k$. The recursive loop is divided into two distinct mathematical phases:
+
+**Phase 1: The Prediction Step (Time Update)**
+
+Before the camera captures frame $k$, the filter must predict where the target will be, based entirely on where it was in frame $k-1$ and our kinematic models.
+
+Mathematically, we are calculating the **Prior PDF: $p(\mathbf{x}_k \mid \mathbf{Z}_{k-1})$**.
+
+This is achieved using the **Chapman-Kolmogorov Equation**:
+
+$$p(\mathbf{x}_k \mid \mathbf{Z}_{k-1}) = \int p(\mathbf{x}_k \mid \mathbf{x}_{k-1}) p(\mathbf{x}_{k-1} \mid \mathbf{Z}_{k-1}) d\mathbf{x}_{k-1}$$
+
+* $p(\mathbf{x}_{k-1} \mid \mathbf{Z}_{k-1})$ is the final, updated state from the previous frame.
+* $p(\mathbf{x}_k \mid \mathbf{x}_{k-1})$ is the State Transition Model (our kinematic physics and Process Noise $Q$ from Chapter 5).
+
+* **The Physical Reality:** During the prediction step, uncertainty always *grows*. Because we are moving blindly forward in time without new sensor data, process noise expands the covariance matrix. The target's "uncertainty bubble" inflates.
+
+
+> **Deep Dive: The Chapman-Kolmogorov Derivation**
+
+> We just stated that the Prediction Step relies on the Chapman-Kolmogorov equation to push the target's state forward in time. But where does this continuous integral actually come from? If you want to see how it is mathematically derived from the Law of Total Probability and the Markov Assumption, refer to **Appendix: The Chapman-Kolmogorov Equation**.
+
+
+**Phase 2: The Update Step (Measurement Update)**
+
+The camera shutter fires and detection model does inference,  We receive a new bounding box measurement, $\mathbf{Z}_k$​ ​. We must now fuse this new data with our prediction to find the true state.
+
+Mathematically, we are calculating the **Posterior PDF**: $p(\mathbf{x}_k \mid \mathbf{Z}_k)$.
+
+This is achieved using **Bayes' Theorem**:
+
+$$p(\mathbf{x}_k \mid \mathbf{Z}_k) = \frac{p(\mathbf{z}_k \mid \mathbf{x}_k) p(\mathbf{x}_k \mid \mathbf{Z}_{k-1})}{p(\mathbf{z}_k \mid \mathbf{Z}_{k-1})}$$
+
+* $p(\mathbf{x}_k \mid \mathbf{Z}_{k-1})$ is the Prediction we just generated in Phase 1.
+* $p(\mathbf{z}_k \mid \mathbf{x}_k)$ is the Likelihood (our Measurement Model and Sensor Noise $R$).
+* The denominator $p(\mathbf{z}_k \mid \mathbf{Z}_{k-1})$ is the Evidence, the normalizing constant ensuring the total probability equals 1.0.
+* **The Physical Reality:** During the update step, uncertainty always *shrinks*. The infusion of real-world data pins the target down, collapsing the covariance matrix. 
+
+If you log the determinant of your covariance matrix ($|P|$) during a live intercept, you will see it literally "breathe"—expanding during the prediction step, and contracting sharply during the update step.
+
+
+
 ## Why closed-form solutions are rare (the integration problem).
+
+If the recursive Bayes equations are the ultimate, optimal way to track a target, why do we need hundreds of different Kalman Filter variations? Why can't we just write a C++ function to solve these two equations directly?
+
+The answer lies in the terrifying mathematical machinery hiding inside the denominator of the Update step (the Evidence). To calculate the total probability of the measurement, we must integrate the numerator across the entire infinite state space:
+
+$$p(\mathbf{z}_k \mid \mathbf{Z}_{k-1}) = \int p(\mathbf{z}_k \mid \mathbf{x}_k) p(\mathbf{x}_k \mid \mathbf{Z}_{k-1}) d\mathbf{x}_k$$
+
+**The Mathematical Roadblock**
+
+An integral calculates the area under a continuous curve. To solve an integral analytically (a "closed-form" solution), you must be able to find the anti-derivative of the functions inside it.
+
+1.  **The Linear Exception:** If—and *only* if—your kinematic models are perfectly linear (e.g., the Constant Velocity matrix $F$), and your measurement models are perfectly linear (the $H$ matrix), and all noises are perfectly Gaussian, then the math is beautiful. The integrals of linear Gaussians result in more linear Gaussians. The integrals vanish algebraically, collapsing into the simple, static matrix multiplications of the standard **Kalman Filter (KF)**.
+   
+2.  **The Non-Linear Reality:** In modern aerospace tracking, systems are highly non-linear. The Coordinated Turn (CT) model uses sine and cosine functions to couple velocities. Visual AI sensors project a 3D world onto a 2D pixel plane using highly non-linear pinhole camera geometry. 
+
+When you shove trigonometric functions and perspective divisions inside a Gaussian exponent, it creates a wildly warped probability distribution. **This non-linear integral has no analytical solution.** It is mathematically impossible to solve with algebra.
+
+> **Deep Dive: The Calculus of Non-Linear Integration**
+
+> It is one thing to say an integral is unsolvable; it is another to see it fail on paper. If you want to look at the exact calculus of why this happens—specifically using the non-linear bearing angle geometry ($\arctan(Y/X)$) of a monocular tracking camera—refer to **Appendix: The Analytical Impossibility of Non-Linear Integration**.
+
+**The Engineering Dilemma**
+
+If we cannot solve the integral algebraically, the CPU must approximate it numerically. 
+
+Historically, engineers solved this by cheating the physics: the **Extended Kalman Filter (EKF)** uses Jacobian matrices (calculus derivatives) to forcibly flatten the non-linear physics into linear tangents, essentially pretending the problem is linear so the standard integrals work. However, for highly evasive targets and complex camera projections, this forced linearization introduces massive truncation errors, causing the filter's covariance to collapse and the track to diverge.
+
+To achieve superior accuracy without analytical integrals, we must stop trying to linearize the math, and instead mathematically approximate the probability distribution itself. 
+
+This exact integration roadblock is the birthplace of the **Cubature Kalman Filter (CKF)**. Instead of attempting impossible calculus, the CKF uses the Spherical-Radial cubature rule to carefully select a deterministic set of $2n$ points (where $n$ is the state dimension). By pushing these specific points through the true, uncorrupted non-linear equations, the CKF computes the exact expected value of the unsolvable integral with incredible accuracy and low CPU overhead.
+
+
+> **Deep Dive: The Spherical-Radial Derivation**
+
+> We just stated that converting to spherical coordinates miraculously collapses an infinite Gaussian integral down to exactly $2n$ points. But how does the calculus actually prove this? And how do we prove that the radius of the points must be exactly $\sqrt{n}$ to perfectly capture the system's variance? For the rigorous mathematical proof involving Gaussian-Laguerre quadrature and moment-matching, refer to **Appendix: Derivation of the Spherical-Radial Cubature Rule**.
+
+
 
 # Part III: The Classic Standard Kalman Filter (KF) {-}
 
@@ -1203,11 +1394,15 @@ public:
 
 ## Mathematical proof of the linear Kalman Filter from Bayesian principles.
 
+
+
 ## The Minimum Mean Square Error (MMSE) estimator.
 
 #  Tuning and Diagnostics
 
 ## Covariance matching and innovation analysis.
+
+
 
 ## Filter divergence and numerical stability considerations.
 
@@ -1267,6 +1462,85 @@ public:
 
 
 # Appendix {-}
+
+# Derivation of the Spherical-Radial Cubature Rule
+
+In Chapter 1.4, we introduced the Spherical-Radial Integration rule as the foundational mathematics that gives the Cubature Kalman Filter its name and its efficiency. This appendix provides the rigorous derivation proving how an infinite continuous integral collapses into exactly 2n deterministic points.
+
+**1. The Core Problem**
+
+In Bayesian estimation, we constantly need to evaluate non-linear expectations of Gaussian random variables. This requires solving an integral of the form:
+
+$$I(f) = \int_{\mathbb{R}^n} f(\mathbf{x}) \mathcal{N}(\mathbf{x}; \symbf{\mu}, P) d\mathbf{x}$$
+
+Where $f(\mathbf{x})$ is some non-linear function (like our camera projection geometry), and $\mathcal{N}$ is a Gaussian PDF with mean $\symbf{\mu}$ and covariance $P$.
+
+Through standard algebraic substitution, any Gaussian can be shifted and scaled into a "Standard Normal" distribution (Mean = $0$, Covariance = $I$). Let $\mathbf{x} = \sqrt{P}\symbf{\xi} + \symbf{\mu}$. The integral simplifies to:
+
+$$I(f) = \int_{\mathbb{R}^n} f(\sqrt{P}\symbf{\xi} + \symbf{\mu}) \mathcal{N}(\symbf{\xi}; \mathbf{0}, I) d\symbf{\xi}$$
+
+The core mathematical challenge is solving the right side: integrating an arbitrary function multiplied by a standard normal weight across all $n$-dimensional space.
+
+**2. Cartesian to Spherical-Radial Transformation**
+
+We substitute the Cartesian vector $\symbf{\xi}$ with a spherical-radial coordinate system. Let:
+$$\symbf{\xi} = r \mathbf{y}$$
+Where:
+* $r \ge 0$ is the radial distance (a scalar).
+* $\mathbf{y}$ is the directional vector lying on the surface of an $n$-dimensional unit sphere ($U_n$), such that $\mathbf{y}^T \mathbf{y} = 1$.
+
+The standard normal PDF is defined as $\mathcal{N}(\symbf{\xi}; \mathbf{0}, I) = \frac{1}{\sqrt{(2\pi)^n}} \exp\left(-\frac{1}{2}\symbf{\xi}^T\symbf{\xi}\right)$. 
+Because $\symbf{\xi}^T\symbf{\xi} = r^2(\mathbf{y}^T\mathbf{y}) = r^2$, the exponential term simplifies brilliantly to $\exp\left(-\frac{r^2}{2}\right)$.
+
+By transforming the differential volume element $d\symbf{\xi}$ into spherical coordinates ($r^{n-1} dr d\sigma(\mathbf{y})$), the massive multidimensional integral splits into two separate, independent integrals:
+
+$$I(f) = \frac{1}{\sqrt{(2\pi)^n}} \int_0^\infty \int_{U_n} f(r\mathbf{y}) r^{n-1} \exp\left(-\frac{r^2}{2}\right) d\sigma(\mathbf{y}) dr$$
+
+This gives us our two target integrals:
+1.  **The Spherical Integral:** $S(r) = \int_{U_n} f(r\mathbf{y}) d\sigma(\mathbf{y})$
+2.  **The Radial Integral:** $R = \int_0^\infty S(r) r^{n-1} \exp\left(-\frac{r^2}{2}\right) dr$
+  
+**3. Solving the Spherical Integral**
+
+The spherical integral calculates the average value of the function over the surface of the sphere. 
+
+To approximate this integral numerically, we must select a finite set of points on the sphere. To capture the full symmetry of a Gaussian distribution (which is perfectly symmetric across all axes), our set of points must also be perfectly symmetric.
+
+The most efficient fully symmetric set of points on an $n$-dimensional sphere are the intersections of the sphere with the Cartesian axes. For an $n$-dimensional space, there are $n$ axes, each piercing the sphere in two places (positive and negative). 
+
+We define this discrete set of points as $[u]_i$. For $n$ dimensions, there are exactly $2n$ points:
+
+$$[u] = \left\{ \begin{bmatrix} 1 \\ 0 \\ \vdots \end{bmatrix}, \begin{bmatrix} -1 \\ 0 \\ \vdots \end{bmatrix}, \begin{bmatrix} 0 \\ 1 \\ \vdots \end{bmatrix}, \begin{bmatrix} 0 \\ -1 \\ \vdots \end{bmatrix}, \dots \right\}$$
+
+By applying the symmetric cubature rule, the continuous spherical surface integral is approximated as a discrete sum over these $2n$ points:
+
+$$S(r) \approx \frac{A_n}{2n} \sum_{i=1}^{2n} f(r [u]_i)$$
+*(Where $A_n$ is the surface area of the unit sphere).*
+
+**4. Solving the Radial Integral**
+
+Now we substitute our discrete spherical sum back into the radial integral:
+
+$$I(f) \approx \frac{1}{2n} \sum_{i=1}^{2n} \left( \frac{A_n}{\sqrt{(2\pi)^n}} \int_0^\infty f(r [u]_i) r^{n-1} \exp\left(-\frac{r^2}{2}\right) dr \right)$$
+
+We must find the correct radius $r$ at which to evaluate these points. We do this by applying Gaussian-Laguerre quadrature (moment matching). We want to find a radius $r$ such that the second statistical moment (the variance) of our discrete points perfectly matches the variance of the true, continuous Gaussian distribution.
+
+The second moment of the standard normal distribution is mathematically proven to be $n$.
+Therefore, to perfectly capture the variance of the Gaussian, we set the squared radius equal to the dimension of the state space:
+$$r^2 = n \implies r = \sqrt{n}$$
+
+
+**5. The Final Cubature Rule**
+
+By plugging $r = \sqrt{n}$ into our equations, the radial integral vanishes completely, and we are left with the final Spherical-Radial Cubature Rule:
+
+$$I(f) \approx \frac{1}{2n} \sum_{i=1}^{2n} f(\sqrt{n} [u]_i)$$
+
+**The Engineering Conclusion:**
+The math proves that the complex, impossible continuous integral of a non-linear Gaussian system can be calculated with incredibly high accuracy simply by taking the $2n$ axis unit vectors ($[u]_i$), scaling them outward by a radius of $\sqrt{n}$, pushing them through the non-linear function $f$, and averaging the result.
+
+This deterministic calculation is what generates the **Cubature Points** ($\xi_i$) that you will program into your Prediction and Update steps.
+
 
 # The square root of a matrix and Cholesky decomposition
 
@@ -1747,7 +2021,9 @@ We have now reduced the problem to a standard linear algebra equation: $A\mathbf
 
 By the fundamental theorem of linear algebra, to find a unique, exact solution for $\mathbf{x}_0$, the matrix $\mathcal{O}$ must have an inverse (or a left pseudo-inverse).
 
-(Note: Because the Observability matrix is a tall, rectangular matrix where the number of rows exceeds the number of columns, it cannot be inverted using a standard matrix inverse. Solving the equation $Z = \mathcal{O}\mathbf{x}_0$ requires computing the Left Pseudo-Inverse. For a complete mathematical breakdown of how to invert non-square matrices in tracking, see **Appendix: TWhat is the Pseudo-Inverse for Rectangular Matrices**).
+> **Deep Drive:  What is the Pseudo-Inverse for Rectangular Matrices**
+
+> Note: Because the Observability matrix is a tall, rectangular matrix where the number of rows exceeds the number of columns, it cannot be inverted using a standard matrix inverse. Solving the equation $Z = \mathcal{O}\mathbf{x}_0$ requires computing the Left Pseudo-Inverse. For a complete mathematical breakdown of how to invert non-square matrices in tracking, see **Appendix: What is the Pseudo-Inverse for Rectangular Matrices**.
 
 
 For $\mathcal{O}$ to have a left pseudo-inverse, its columns must be linearly independent. In other words, $\mathcal{O}$ must have full column rank. Because the state vector $\mathbf{x}_0$ has $n$ dimensions, $\mathcal{O}$ must have rank $n$.
@@ -1807,6 +2083,120 @@ For a wide matrix to have a right inverse, it must have Full Row Rank.
 - **The Result**: Multiplying from the right yields the identity matrix: $A A_{right}^+ = I_m$.
 - **Engineering Meaning**: Because there are more variables than equations, there are infinite solutions. The right pseudo-inverse finds the specific solution that has the absolute smallest magnitude (minimum norm).
 
+
+# The Chapman-Kolmogorov Equation
+
+In Chapter 6.1, we introduced the Chapman-Kolmogorov Equation as the mathematical engine of the Kalman Filter's Prediction Step. It calculates the Prior probability distribution ($p(\mathbf{x}_k \mid \mathbf{Z}_{k-1})$) by pushing the previous state forward in time.
+
+But where does this equation come from? It is derived by combining two fundamental concepts from probability theory: **The Law of Total Probability** and the **Markov Property**.
+
+**1. The Law of Total Probability (Marginalization)**
+
+In statistics, if you want to find the probability of an event $A$, but that event depends on a series of mutually exclusive underlying events $B$, you can find the total probability of $A$ by summing (or integrating) the joint probabilities of $A$ and $B$ across all possible states of $B$.
+
+For continuous random variables, this is called marginalization:
+
+$$p(A) = \int p(A, B) dB$$
+
+By applying the definition of conditional probability ($p(A, B) = p(A \mid B) p(B)$), we can rewrite this as:
+
+$$p(A) = \int p(A \mid B) p(B) dB$$
+
+**2. Applying this to Target Tracking**
+
+Let us map this to our tracking variables. We want to find the probability of the target's state today ($\mathbf{x}_k$), given all the sensor measurements up to yesterday ($\mathbf{Z}_{k-1}$). 
+
+To do this, we marginalize out "yesterday's exact state" ($\mathbf{x}_{k-1}$) by integrating across every possible place the target could have been yesterday. 
+
+Substituting our tracking variables into the Law of Total Probability yields:
+
+$$p(\mathbf{x}_k \mid \mathbf{Z}_{k-1}) = \int p(\mathbf{x}_k, \mathbf{x}_{k-1} \mid \mathbf{Z}_{k-1}) d\mathbf{x}_{k-1}$$
+
+Using the conditional probability rule, we split the joint distribution:
+
+$$p(\mathbf{x}_k \mid \mathbf{Z}_{k-1}) = \int p(\mathbf{x}_k \mid \mathbf{x}_{k-1}, \mathbf{Z}_{k-1}) p(\mathbf{x}_{k-1} \mid \mathbf{Z}_{k-1}) d\mathbf{x}_{k-1}$$
+
+**3. The Markov Assumption**
+
+Look at the first term inside the integral: $p(\mathbf{x}_k \mid \mathbf{x}_{k-1}, \mathbf{Z}_{k-1})$. This asks, "Where is the target today, given exactly where it was yesterday AND all the historical sensor data?"
+
+As defined in Chapter 4.4, kinematic tracking is a **Markov Process**. The target's state today depends *only* on where it was yesterday, and the physics guiding its movement. The historical sequence of camera images ($\mathbf{Z}_{k-1}$) provides no additional predictive power if we already know yesterday's state $\mathbf{x}_{k-1}$. 
+
+Therefore, we can drop $\mathbf{Z}_{k-1}$ from that specific term:
+
+$$p(\mathbf{x}_k \mid \mathbf{x}_{k-1}, \mathbf{Z}_{k-1}) = p(\mathbf{x}_k \mid \mathbf{x}_{k-1})$$
+
+
+**4. The Final Equation**
+
+Substituting the Markov simplification back into our integral leaves us with the exact, formal definition of the Chapman-Kolmogorov Equation:
+
+$$p(\mathbf{x}_k \mid \mathbf{Z}_{k-1}) = \int p(\mathbf{x}_k \mid \mathbf{x}_{k-1}) p(\mathbf{x}_{k-1} \mid \mathbf{Z}_{k-1}) d\mathbf{x}_{k-1}$$
+
+**The Engineering Meaning:**
+
+Mathematically, this equation is a continuous convolution. It takes the sharp, well-defined probability peak of where we thought the target was yesterday ($p(\mathbf{x}_{k-1} \mid \mathbf{Z}_{k-1})$) and "smears" it across space using the transition physics and process noise ($p(\mathbf{x}_k \mid \mathbf{x}_{k-1})$). The result is a wider, flatter curve representing our predicted uncertainty before the camera takes the next picture.
+
+
+# The Analytical Impossibility of Non-Linear Integration
+
+In Chapter 6.2, we claimed that the recursive Bayesian integration problem is analytically unsolvable for non-linear systems. To truly appreciate why the Cubature Kalman Filter is a mathematical necessity rather than just an alternative, one must look at the calculus of what happens when Gaussians collide with real-world geometry.
+
+**1. The Requirement for Closed-Form Gaussian Integration**
+
+An integral has an analytical (closed-form) solution if we can write its answer using a finite number of standard mathematical operations (algebra, exponentials, logarithms, etc.). 
+
+In the Bayesian update step, we must calculate the Evidence by integrating the Likelihood multiplied by the Prior:
+
+$$p(\mathbf{z}_k) = \int p(\mathbf{z}_k \mid \mathbf{x}_k) p(\mathbf{x}_k) d\mathbf{x}_k$$
+
+Because we assume our noises are Gaussian, the terms inside this integral take the exponential form $\exp(\dots)$. 
+
+For an integral of the form $\int \exp(-f(x)) dx$ to be analytically solvable over the range $[-\infty, \infty]$, the function inside the exponent, $f(x)$, **must be a quadratic polynomial** (e.g., $ax^2 + bx + c$). If the exponent takes a quadratic form, we can mathematically "complete the square" and perfectly solve the integral, resulting in the standard, linear Kalman Filter equations.
+
+If $f(x)$ contains *any* non-linear geometry—such as trigonometric functions, roots, or divisions—the exponent is no longer quadratic. The integral becomes a transcendental function with no elementary antiderivative. It is mathematically unsolvable.
+
+**2. Concrete Example: The Non-Linear Reality of Bearing Angles**
+
+Let us look at a highly standard aerospace tracking scenario. A UAV is flying in a 2D plane ($X, Y$). An interception system is tracking it using a monocular camera that can only measure the visual bearing angle ($\theta$) to the target. 
+
+**The State Vector:** $\mathbf{x} = [X, Y]^T$
+**The Measurement:** $z = \theta$
+
+The non-linear measurement geometry linking the state to the sensor is:
+
+$$h(\mathbf{x}) = \arctan\left(\frac{Y}{X}\right)$$
+
+Now, let us attempt to construct the Bayesian integral to find the Evidence denominator. We will ignore the scaling constants to focus purely on the calculus of the exponents.
+
+**The Prior (Predicted State):**
+Assume we predict the target is at $(\mu_x, \mu_y)$ with some spatial variance $\sigma_x^2$ and $\sigma_y^2$. The Prior PDF is:
+
+$$p(\mathbf{x}) \propto \exp\left( -\frac{(X - \mu_x)^2}{2\sigma_x^2} - \frac{(Y - \mu_y)^2}{2\sigma_y^2} \right)$$
+*(Note: This is a perfect quadratic. If we integrated this alone, it would be easily solvable).*
+
+**The Likelihood (Sensor Measurement):**
+The camera measures an angle $\theta_{meas}$ with a sensor noise variance of $\sigma_\theta^2$. The Likelihood PDF is evaluated by plugging our non-linear geometry into the Gaussian formula:
+
+$$p(z \mid \mathbf{x}) \propto \exp\left( -\frac{\left(\theta_{meas} - \arctan\left(\frac{Y}{X}\right)\right)^2}{2\sigma_\theta^2} \right)$$
+
+**The Integration Roadblock:**
+To find the Bayesian Evidence, we must multiply these two functions and integrate over $X$ and $Y$:
+
+$$p(z) \propto \iint \exp\left( -\frac{(X - \mu_x)^2}{2\sigma_x^2} - \frac{(Y - \mu_y)^2}{2\sigma_y^2} -\frac{\left(\theta_{meas} - \arctan\left(\frac{Y}{X}\right)\right)^2}{2\sigma_\theta^2} \right) dX dY$$
+
+Look closely at the final term inside the exponent: $\left(\theta_{meas} - \arctan\left(\frac{Y}{X}\right)\right)^2$. 
+
+If you expand this term, you generate $\arctan^2\left(\frac{Y}{X}\right)$. 
+
+**This is the mathematical dead end.** There is no known calculus technique—no integration by parts, no u-substitution, no trigonometric identity—that can find the exact analytical integral of an exponential function containing a squared arctangent of a fraction.
+
+**3. The Estimation Solution**
+
+Because the exact math fails, tracking engineers must approximate. 
+
+* The **Extended Kalman Filter (EKF)** attempts to solve this by calculating the Taylor Series derivative (Jacobian) of $\arctan(Y/X)$ and forcibly pretending the geometry is a straight line. If the UAV's spatial uncertainty is large, this forced flattening drastically distorts the math, and the filter fails.
+* The **Cubature Kalman Filter (CKF)** accepts that the integral cannot be solved via calculus. Instead, it utilizes spherical-radial integration theory. It strategically selects $2n$ discrete physical coordinate points, runs those exact numbers through the true, uncorrupted $\arctan(Y/X)$ function, and takes the weighted average of the results. By replacing an impossible continuous integral with a finite set of discrete deterministic evaluations, the CKF achieves near-optimal estimation without ever needing to calculate a derivative.
 
 # Bibliography {-}
 ## Articles {-}
