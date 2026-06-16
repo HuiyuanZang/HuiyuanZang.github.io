@@ -1733,10 +1733,141 @@ public:
 
 #  Tuning and Diagnostics
 
-## Covariance matching and innovation analysis.
+No tracking filter survives first contact with real-world sensor data. A Kalman Filter derived on a whiteboard assumes that we perfectly know the Process Noise ($Q$) and the Measurement Noise ($R$). In reality, these matrices are almost always educated guesses. 
+
+If your filter equations are perfectly coded but your $Q$ and $R$ matrices are poorly tuned, the filter will either violently jitter with sensor noise or sluggishly trail behind an accelerating target. This chapter bridges the gap between pure mathematics and practical engineering, detailing how to tune a filter, how to mathematically prove it is tuned correctly, and how to prevent floating-point rounding errors from destroying your covariance matrices.
+
+## The Tug-of-War: Q vs. R
+
+Tuning a tracking filter is essentially a tug-of-war between your kinematic model ($F$) and your sensor data ($z$). The rope they are pulling on is the Kalman Gain ($K$).
+
+$$K_k = P_{k|k-1} H^T (H P_{k|k-1} H^T + R)^{-1}$$
+
+Look at the denominator: the Measurement Noise $R$. Now remember that $P_{k|k-1}$ is directly driven by the Process Noise $Q$.
+
+* **High $R$, Low $Q$ (Trust the Model):** If you tell the filter that your sensors are terrible (large $R$) and your physical model is perfect (small $Q$), the Kalman Gain approaches zero. The filter ignores incoming measurements and blindly flies along its predicted trajectory. The output will be incredibly smooth, but if the target maneuvers, the filter will **lag** severely and lose the track.
+* **Low $R$, High $Q$ (Trust the Sensor):** If you tell the filter your sensors are flawless (small $R$) and your model is highly uncertain (large $Q$), the Kalman Gain approaches $H^{-1}$. The filter ignores its physics model and snaps the state estimate directly to the noisy sensor measurements. The filter will perfectly track rapid maneuvers, but the output will be violently **jittery**.
+
+**The Engineering Reality:** $R$ is usually known. You can look at a radar's hardware datasheet and find its baseline variance (e.g., $\sigma = 5$ meters). Therefore, the art of filter tuning almost entirely consists of artificially scaling the Process Noise matrix $Q$ to balance lag and jitter.
 
 
-## Filter divergence and numerical stability considerations.
+## Innovation Analysis and the NIS Statistic
+
+Manual tuning by "eyeballing" the lag and jitter on a screen is dangerous. We need a rigorous, mathematical diagnostic to tell us if our $Q$ matrix is correctly balanced against our $R$ matrix.
+
+This is achieved using **Innovation Analysis**. The Innovation (or Residual), $\mathbf{y}_k$, is the difference between what the sensor measured and what the filter predicted:
+$$\mathbf{y}_k = \mathbf{z}_k - H\hat{\mathbf{x}}_{k|k-1}$$
+
+The filter also calculates how much variance we *expect* to see in this innovation, defined as the Innovation Covariance ($S_k$):
+$$S_k = H P_{k|k-1} H^T + R$$
+
+If the filter is perfectly tuned, the actual error ($\mathbf{y}_k$) should be statistically consistent with the expected error ($S_k$). We measure this consistency using the **Normalized Innovation Squared (NIS)** statistic:
+
+$$\epsilon_k = \mathbf{y}_k^T S_k^{-1} \mathbf{y}_k$$
+
+**The Mathematics:**
+
+Because $\mathbf{y}_k$ is assumed to be a zero-mean Gaussian, normalizing it by its covariance $S_k$ transforms the NIS ($\epsilon_k$) into a **Chi-Square ($\chi^2$) distribution**. The degrees of freedom ($m$) of this distribution equal the number of dimensions in your measurement vector (e.g., $m=2$ for an X/Y radar hit).
+
+If you plot the NIS values over time during a tracking run:
+1. **NIS is consistently too high:** The actual errors are much larger than the filter expects. The filter is overconfident in its model. You need to **increase Q**.
+   
+2. **NIS is consistently too low:** The actual errors are much smaller than the filter expects. The filter is underconfident. You need to **decrease Q**.
+
+The NIS is also the primary mechanism for **Measurement Gating**. By checking a Chi-Square table, we know that for a 2D measurement, 95% of all valid sensor hits will yield an NIS less than $5.99$. If a radar blip produces an NIS of $25.0$, the filter instantly knows it is a false alarm (clutter) and mathematically rejects it before it corrupts the state.
+
+
+## Filter Divergence and Adaptive Covariance Matching
+
+
+**Filter Divergence** occurs when the estimation error grows exponentially over time, but the filter's internal covariance matrix ($P$) shrinks toward zero. The filter becomes completely blind to reality, adamantly believing it knows exactly where the target is, while the true target flies away.
+
+Divergence is usually caused by unmodeled target maneuvers (e.g., a target suddenly pulling 9Gs when the filter assumes constant velocity). 
+
+To prevent divergence, advanced tracking systems use **Adaptive Covariance Matching**. Instead of hardcoding $Q$ and $R$ before the flight, the filter monitors the NIS in real-time. If the NIS spikes (indicating a sudden maneuver), the filter dynamically recalculates and injects massive amounts of Process Noise ($Q$) into the system on the fly to force the Kalman Gain to open up and catch the maneuvering target.
+
+> **Deep Dive: The Mathematics of Adaptive Tuning**
+
+> Calculating new $Q$ and $R$ matrices dynamically requires taking moving-window averages of the innovation sequence and solving backward through the covariance equations. For the rigorous mathematical derivation of the Myers-Tapley Covariance Matching algorithm, refer to **Appendix K: Adaptive Covariance Matching**.
+
+## Numerical Stability and the Joseph Form
+
+Even if your filter is perfectly tuned, it can still diverge and crash due to computer science limitations. 
+
+The Covariance Matrix ($P$) is a mathematical representation of physical uncertainty. Therefore, by definition, it must be **Symmetric** and **Positive Definite** (all its eigenvalues must be strictly greater than zero). You cannot have "negative uncertainty."
+
+The standard covariance update equation is:
+$$P_{k|k} = (I - K_k H) P_{k|k-1}$$
+
+**The Engineering Dilemma:**
+
+This equation requires subtracting a matrix from the Identity matrix. In 32-bit or 64-bit floating-point C++ environments, repeated subtraction over thousands of iterations causes microscopic rounding errors (truncation). Over time, these truncation errors accumulate. The $P$ matrix will eventually lose its symmetry, develop negative eigenvalues, and instantly crash your software with a `NaN` (Not a Number) failure during the next Cholesky decomposition.
+
+To mathematically guarantee numerical stability in production software, engineers use the **Joseph Form** update equation (derived in Appendix J):
+
+$$P_{k|k} = (I - K_k H) P_{k|k-1} (I - K_k H)^T + K_k R K_k^T$$
+
+While it requires more matrix multiplications (costing slightly more CPU time), the Joseph form adds two strictly positive-definite matrices together ($A P A^T + B R B^T$). Because it utilizes addition rather than subtraction, it is mathematically impossible for rounding errors to cause negative eigenvalues.
+
+**C++ Implementation:**
+
+Here is the production-ready C++ code implementing both NIS gating and the Joseph Form stability update.
+
+```cpp
+#include <Eigen/Dense>
+
+using namespace Eigen;
+
+class RobustKalmanFilter {
+private:
+    VectorXd x; // State estimate
+    MatrixXd P; // Covariance
+    MatrixXd H; // Measurement Matrix
+    MatrixXd R; // Measurement Noise
+    MatrixXd I; // Identity Matrix
+
+    // Chi-Square 95% threshold for 2 Degrees of Freedom (e.g., X, Y radar)
+    const double CHI_SQUARE_95_2DOF = 5.991; 
+
+public:
+    // ... Constructor and Predict step omitted for brevity ...
+
+    // Update Step with NIS Gating and Joseph Form stability
+    bool updateRobust(const VectorXd& z) {
+        // 1. Calculate Innovation (y) and Innovation Covariance (S)
+        VectorXd y = z - (H * x);
+        MatrixXd S = H * P * H.transpose() + R;
+        MatrixXd S_inv = S.inverse();
+
+        // 2. Innovation Analysis (Calculate NIS)
+        // NIS = y^T * S^-1 * y
+        double nis = y.transpose() * S_inv * y;
+
+        // 3. Measurement Gating
+        // If NIS exceeds statistical threshold, reject the measurement!
+        if (nis > CHI_SQUARE_95_2DOF) {
+            // Measurement is likely clutter or a severe glitch.
+            // Do not update the state. Return false indicating rejection.
+            return false; 
+        }
+
+        // 4. Calculate Kalman Gain
+        MatrixXd K = P * H.transpose() * S_inv;
+
+        // 5. Update State
+        x = x + (K * y);
+
+        // 6. Joseph Form Covariance Update (Guarantees Numerical Stability)
+        // P = (I - K*H) * P * (I - K*H)^T + K * R * K^T
+        MatrixXd I_KH = I - (K * H);
+        P = I_KH * P * I_KH.transpose() + K * R * K.transpose();
+
+        return true; // Successfully fused measurement
+    }
+};
+
+```
+
 
 # Part IV: Conquering Non-Linearity {-}
 # The Extended Kalman Filter (EKF)
@@ -1795,7 +1926,7 @@ public:
 
 # Appendix {-}
 
-# Derivation of the Spherical-Radial Cubature Rule
+# A:Derivation of the Spherical-Radial Cubature Rule
 
 In Chapter 1.4, we introduced the Spherical-Radial Integration rule as the foundational mathematics that gives the Cubature Kalman Filter its name and its efficiency. This appendix provides the rigorous derivation proving how an infinite continuous integral collapses into exactly 2n deterministic points.
 
@@ -1874,7 +2005,7 @@ The math proves that the complex, impossible continuous integral of a non-linear
 This deterministic calculation is what generates the **Cubature Points** ($\xi_i$) that you will program into your Prediction and Update steps.
 
 
-# The square root of a matrix and Cholesky decomposition
+# B:The square root of a matrix and Cholesky decomposition
 
 **The square root of a matrix**
 
@@ -2099,7 +2230,7 @@ Using the Cholesky decomposition to find $P = L L^T$ is the premier choice for e
 
 - **Deterministic Point Generation**: Multiplying our standard unit vectors by the lower triangular matrix $L$ cleanly scales and rotates our cubature points directly along the principal axes of the target's uncertainty ellipse, ensuring mathematically stable propagation through non-linear measurement models.
 
-# Expectation Algebra and Covariance Propagation 
+# C:Expectation Algebra and Covariance Propagation 
 
 To understand why the standard Kalman filter equations take the shape they do, one must understand how expectation (the expected value) acts as a mathematical operator.
 
@@ -2161,7 +2292,7 @@ $$Cov(\mathbf{y}) = F P F^T + Q$$
 This proof forms the mathematical basis for the Prediction Step in every linear and extended Kalman Filter ever written.
 
 
-# The Gaussian Multiplication Proof and the Origins of the Kalman Gain 
+# D:The Gaussian Multiplication Proof and the Origins of the Kalman Gain 
 
 In Chapter 4, we stated that Bayes' Theorem operates by multiplying the Prior probability distribution (our kinematic prediction) by the Likelihood distribution (our sensor measurement). We also stated that because both of these are Gaussian (Normal) distributions, multiplying them magically produces a third, narrower Gaussian distribution representing our updated estimate (the Posterior).
 
@@ -2292,7 +2423,7 @@ $$K = P H^T (H P H^T + R)^{-1}$$
 (Note: The $H$ matrix simply projects the state space into the measurement space so the matrices align properly).
 
 
-# The Proof of Linear Observability 
+# E:The Proof of Linear Observability 
 
 In Chapter 5.2, we stated that a discrete linear time-invariant (LTI) system is fully observable if its Observability Matrix ($\mathcal{O}$) has full column rank. Here is the formal mathematical proof.
 
@@ -2367,7 +2498,7 @@ If the rank is strictly less than $n$, the system is underdetermined. The null s
 
 
 
-# What is the Pseudo-Inverse for Rectangular Matrices
+# F:What is the Pseudo-Inverse for Rectangular Matrices
 
 For an $m \times n$ matrix $A$ to have a standard inverse, the very first and most absolute property it must have is that $m$ must equal $n$.
 
@@ -2416,7 +2547,7 @@ For a wide matrix to have a right inverse, it must have Full Row Rank.
 - **Engineering Meaning**: Because there are more variables than equations, there are infinite solutions. The right pseudo-inverse finds the specific solution that has the absolute smallest magnitude (minimum norm).
 
 
-# The Chapman-Kolmogorov Equation
+# G:The Chapman-Kolmogorov Equation
 
 In Chapter 6.1, we introduced the Chapman-Kolmogorov Equation as the mathematical engine of the Kalman Filter's Prediction Step. It calculates the Prior probability distribution ($p(\mathbf{x}_k \mid \mathbf{Z}_{k-1})$) by pushing the previous state forward in time.
 
@@ -2470,7 +2601,7 @@ $$p(\mathbf{x}_k \mid \mathbf{Z}_{k-1}) = \int p(\mathbf{x}_k \mid \mathbf{x}_{k
 Mathematically, this equation is a continuous convolution. It takes the sharp, well-defined probability peak of where we thought the target was yesterday ($p(\mathbf{x}_{k-1} \mid \mathbf{Z}_{k-1})$) and "smears" it across space using the transition physics and process noise ($p(\mathbf{x}_k \mid \mathbf{x}_{k-1})$). The result is a wider, flatter curve representing our predicted uncertainty before the camera takes the next picture.
 
 
-# The Analytical Impossibility of Non-Linear Integration
+# H:The Analytical Impossibility of Non-Linear Integration
 
 In Chapter 6.2, we claimed that the recursive Bayesian integration problem is analytically unsolvable for non-linear systems. To truly appreciate why the Cubature Kalman Filter is a mathematical necessity rather than just an alternative, one must look at the calculus of what happens when Gaussians collide with real-world geometry.
 
@@ -2531,7 +2662,7 @@ Because the exact math fails, tracking engineers must approximate.
 * The **Cubature Kalman Filter (CKF)** accepts that the integral cannot be solved via calculus. Instead, it utilizes spherical-radial integration theory. It strategically selects $2n$ discrete physical coordinate points, runs those exact numbers through the true, uncorrupted $\arctan(Y/X)$ function, and takes the weighted average of the results. By replacing an impossible continuous integral with a finite set of discrete deterministic evaluations, the CKF achieves near-optimal estimation without ever needing to calculate a derivative.
 
 
-# Matrix Derivation of the Kalman Filter
+# I:Matrix Derivation of the Kalman Filter
 
 This appendix provides the rigorous matrix calculus to derive the multidimensional Kalman Gain from the Minimum Mean Square Error (MMSE) cost function.
 
@@ -2584,6 +2715,60 @@ $$K S S^{-1} = P_{k|k-1}H^T S^{-1}$$
 $$K = P_{k|k-1}H^T (HP_{k|k-1}H^T + R)^{-1}$$
 
 This mathematically proves that this specific formulation of $K$ guarantees the absolute minimum possible mean squared error for a linear system.
+
+
+# J:Adaptive Covariance Matching
+When a filter diverges due to unmodeled target maneuvers, the static Process Noise matrix ($Q$) is no longer sufficient. This appendix details the covariance matching technique (originally established by Myers and Tapley) used to dynamically estimate $Q$ on the fly using a sliding window of recent innovations.
+
+1. The Statistical Basis of the Innovation
+
+Recall the fundamental definition of the Innovation vector $\mathbf{y}_k$:
+
+
+$$\mathbf{y}_k = \mathbf{z}_k - H\hat{\mathbf{x}}_{k|k-1}$$
+
+The theoretical covariance of the innovation is defined as:
+
+
+$$E[\mathbf{y}_k \mathbf{y}_k^T] = S_k = H P_{k|k-1} H^T + R$$
+
+By expanding the predicted covariance $P_{k|k-1} = F P_{k-1|k-1} F^T + Q$, we can explicitly expose the Process Noise $Q$ inside the theoretical innovation equation:
+
+
+$$S_k = H(F P_{k-1|k-1} F^T + Q)H^T + R$$
+
+2. The Sliding Window Approximation
+
+The equation above tells us what the variance should be. To estimate what the variance actually is, we calculate the sample covariance of the real innovations over a sliding historical window of the last $N$ time steps:
+
+$$\hat{C}_{\mathbf{y}_k} = \frac{1}{N} \sum_{j=k-N+1}^{k} \mathbf{y}_j \mathbf{y}_j^T$$
+
+The core philosophy of Covariance Matching is to force the theoretical covariance ($S_k$) to equal the actual observed sample covariance ($\hat{C}_{\mathbf{y}_k}$):
+
+$$\hat{C}_{\mathbf{y}_k} \approx H(F P_{k-1|k-1} F^T + Q_k)H^T + R$$
+
+3. Solving for Dynamic Process Noise ($Q_k$)
+
+We must now isolate the dynamic $Q_k$ term. Distribute the $H$ and $H^T$ matrices:
+
+$$\hat{C}_{\mathbf{y}_k} = H(F P_{k-1|k-1} F^T)H^T + H Q_k H^T + R$$
+
+Isolate $H Q_k H^T$:
+
+
+$$H Q_k H^T = \hat{C}_{\mathbf{y}_k} - H(F P_{k-1|k-1} F^T)H^T - R$$
+
+To solve for $Q_k$, we must strip away the $H$ matrices. Assuming $H$ is a square and invertible matrix, we multiply both sides by $H^{-1}$ on the left and $(H^T)^{-1}$ on the right:
+
+$$\hat{Q}_k = H^{-1} \left( \hat{C}_{\mathbf{y}_k} - R \right) (H^T)^{-1} - F P_{k-1|k-1} F^T$$
+
+The Engineering Constraint:
+In physical tracking systems, $H$ is rarely square (it maps a large state to a smaller measurement vector), meaning $H^{-1}$ does not exist. In these cases, engineers use the Left Pseudo-Inverse (as defined in Appendix F) to approximate the solution: $H^+ = (H^T H)^{-1} H^T$.
+
+$$\hat{Q}_k \approx H^+ \left( \hat{C}_{\mathbf{y}_k} - R \right) (H^+)^T - F P_{k-1|k-1} F^T$$
+
+Because this raw calculation can sometimes produce negative diagonal values due to statistical noise in the sliding window, a production implementation will immediately zero out any negative eigenvalues, or run a max(0, val) check on the diagonals of $\hat{Q}_k$ to ensure it remains positive-definite before injecting it back into the Kalman Filter prediction loop.
+
 
 # Bibliography {-}
 ## Articles {-}
