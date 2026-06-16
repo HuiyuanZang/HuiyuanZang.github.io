@@ -1926,7 +1926,7 @@ public:
 
 # Appendix {-}
 
-# A:Derivation of the Spherical-Radial Cubature Rule
+# A:Derivation of the Spherical-Radial Cubature Rule {-}
 
 In Chapter 1.4, we introduced the Spherical-Radial Integration rule as the foundational mathematics that gives the Cubature Kalman Filter its name and its efficiency. This appendix provides the rigorous derivation proving how an infinite continuous integral collapses into exactly 2n deterministic points.
 
@@ -2005,7 +2005,7 @@ The math proves that the complex, impossible continuous integral of a non-linear
 This deterministic calculation is what generates the **Cubature Points** ($\xi_i$) that you will program into your Prediction and Update steps.
 
 
-# B:The square root of a matrix and Cholesky decomposition
+# B:The square root of a matrix and Cholesky decomposition {-}
 
 **The square root of a matrix**
 
@@ -2040,7 +2040,7 @@ Because variance represents physical uncertainty (standard deviation squared, $\
 
 
 
-## Theorem: Cholesky Decomposition Proof and Derivation
+## Theorem: Cholesky Decomposition Proof and Derivation {-}
 
 Let $A$ be an $n \times n$ symmetric, positive-definite matrix. There exists a unique lower triangular matrix $L$ with strictly positive diagonal entries ($l_{ii} > 0$) such that 
 
@@ -2168,7 +2168,7 @@ Since we just proved that this exact expression is strictly greater than zero, $
 By the principle of mathematical induction, because the theorem holds for $n=1$, and assuming it holds for $k$ guarantees it holds for $k+1$, we conclude that every symmetric, positive-definite matrix can be uniquely factored into $A = L L^T$.
 
 
-## Algorithm: Cholesky Decomposition
+## Algorithm: Cholesky Decomposition {-}
 
 A lower triangular matrix is simply a matrix where all entries above the main diagonal are zero.
 To showcase how this factorization is deterministically achieved, let us manually expand the equation for a $3 \times 3$ matrix.Let the known symmetric covariance matrix be $A$:
@@ -2230,7 +2230,7 @@ Using the Cholesky decomposition to find $P = L L^T$ is the premier choice for e
 
 - **Deterministic Point Generation**: Multiplying our standard unit vectors by the lower triangular matrix $L$ cleanly scales and rotates our cubature points directly along the principal axes of the target's uncertainty ellipse, ensuring mathematically stable propagation through non-linear measurement models.
 
-# C:Expectation Algebra and Covariance Propagation 
+# C:Expectation Algebra and Covariance Propagation  {-}
 
 To understand why the standard Kalman filter equations take the shape they do, one must understand how expectation (the expected value) acts as a mathematical operator.
 
@@ -2292,7 +2292,7 @@ $$Cov(\mathbf{y}) = F P F^T + Q$$
 This proof forms the mathematical basis for the Prediction Step in every linear and extended Kalman Filter ever written.
 
 
-# D:The Gaussian Multiplication Proof and the Origins of the Kalman Gain 
+# D:The Gaussian Multiplication Proof and the Origins of the Kalman Gain {-}
 
 In Chapter 4, we stated that Bayes' Theorem operates by multiplying the Prior probability distribution (our kinematic prediction) by the Likelihood distribution (our sensor measurement). We also stated that because both of these are Gaussian (Normal) distributions, multiplying them magically produces a third, narrower Gaussian distribution representing our updated estimate (the Posterior).
 
@@ -2423,7 +2423,7 @@ $$K = P H^T (H P H^T + R)^{-1}$$
 (Note: The $H$ matrix simply projects the state space into the measurement space so the matrices align properly).
 
 
-# E:The Proof of Linear Observability 
+# E:The Proof of Linear Observability {-}
 
 In Chapter 5.2, we stated that a discrete linear time-invariant (LTI) system is fully observable if its Observability Matrix ($\mathcal{O}$) has full column rank. Here is the formal mathematical proof.
 
@@ -2498,7 +2498,7 @@ If the rank is strictly less than $n$, the system is underdetermined. The null s
 
 
 
-# F:What is the Pseudo-Inverse for Rectangular Matrices
+# F:What is the Pseudo-Inverse for Rectangular Matrices {-}
 
 For an $m \times n$ matrix $A$ to have a standard inverse, the very first and most absolute property it must have is that $m$ must equal $n$.
 
@@ -2547,7 +2547,7 @@ For a wide matrix to have a right inverse, it must have Full Row Rank.
 - **Engineering Meaning**: Because there are more variables than equations, there are infinite solutions. The right pseudo-inverse finds the specific solution that has the absolute smallest magnitude (minimum norm).
 
 
-# G:The Chapman-Kolmogorov Equation
+# G:The Chapman-Kolmogorov Equation {-}
 
 In Chapter 6.1, we introduced the Chapman-Kolmogorov Equation as the mathematical engine of the Kalman Filter's Prediction Step. It calculates the Prior probability distribution ($p(\mathbf{x}_k \mid \mathbf{Z}_{k-1})$) by pushing the previous state forward in time.
 
@@ -2601,7 +2601,7 @@ $$p(\mathbf{x}_k \mid \mathbf{Z}_{k-1}) = \int p(\mathbf{x}_k \mid \mathbf{x}_{k
 Mathematically, this equation is a continuous convolution. It takes the sharp, well-defined probability peak of where we thought the target was yesterday ($p(\mathbf{x}_{k-1} \mid \mathbf{Z}_{k-1})$) and "smears" it across space using the transition physics and process noise ($p(\mathbf{x}_k \mid \mathbf{x}_{k-1})$). The result is a wider, flatter curve representing our predicted uncertainty before the camera takes the next picture.
 
 
-# H:The Analytical Impossibility of Non-Linear Integration
+# H:The Analytical Impossibility of Non-Linear Integration {-}
 
 In Chapter 6.2, we claimed that the recursive Bayesian integration problem is analytically unsolvable for non-linear systems. To truly appreciate why the Cubature Kalman Filter is a mathematical necessity rather than just an alternative, one must look at the calculus of what happens when Gaussians collide with real-world geometry.
 
@@ -2662,7 +2662,7 @@ Because the exact math fails, tracking engineers must approximate.
 * The **Cubature Kalman Filter (CKF)** accepts that the integral cannot be solved via calculus. Instead, it utilizes spherical-radial integration theory. It strategically selects $2n$ discrete physical coordinate points, runs those exact numbers through the true, uncorrupted $\arctan(Y/X)$ function, and takes the weighted average of the results. By replacing an impossible continuous integral with a finite set of discrete deterministic evaluations, the CKF achieves near-optimal estimation without ever needing to calculate a derivative.
 
 
-# I:Matrix Derivation of the Kalman Filter
+# I:Matrix Derivation of the Kalman Filter {-}
 
 This appendix provides the rigorous matrix calculus to derive the multidimensional Kalman Gain from the Minimum Mean Square Error (MMSE) cost function.
 
@@ -2717,7 +2717,8 @@ $$K = P_{k|k-1}H^T (HP_{k|k-1}H^T + R)^{-1}$$
 This mathematically proves that this specific formulation of $K$ guarantees the absolute minimum possible mean squared error for a linear system.
 
 
-# J:Adaptive Covariance Matching
+# J:Adaptive Covariance Matching {-}
+
 When a filter diverges due to unmodeled target maneuvers, the static Process Noise matrix ($Q$) is no longer sufficient. This appendix details the covariance matching technique (originally established by Myers and Tapley) used to dynamically estimate $Q$ on the fly using a sliding window of recent innovations.
 
 1. The Statistical Basis of the Innovation
@@ -2771,11 +2772,14 @@ Because this raw calculation can sometimes produce negative diagonal values due 
 
 
 # Bibliography {-}
+
 ## Articles {-}
 
 [1] Arasaratnam, I., & Haykin, S. (2009).
 *Cubature Kalman Filters*.
 IEEE Transactions on Automatic Control.
+
+[2] **For Adaptive Covariance Matching:** Myers, K.A., Tapley, B.D.: *Adaptive sequential estimation with unknown noise statistics*. IEEE Transactions on Automatic Control **21**(4), 520-523 (1976). (This is the original paper proving the sliding window $Q$ estimation).
 
 ## Books {-}
 
@@ -2784,4 +2788,8 @@ IEEE Transactions on Automatic Control.
 John Wiley & Sons.
 
 
+[3] **For NIS and Gating:** Bar-Shalom, Y., Li, X.R., Kirubarajan, T.: *Estimation with Applications to Tracking and Navigation*. (Chapter 5 directly covers Innovation Analysis, Validation Regions, and the Chi-Square statistics).
+
+
+[4] **For Numerical Stability (Joseph Form):** Simon, D.: *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*. (Chapter 6 covers roundoff errors, Joseph Form, and U-D factorization).
 
