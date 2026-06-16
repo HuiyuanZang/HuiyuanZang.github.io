@@ -1179,6 +1179,150 @@ To solve this, tracking engineers drop the $B\mathbf{u}_k$ term entirely. We are
 
 
 
+## Derivation of the Discrete State Extrapolation Equation
+
+To understand the cap beteen the differential equations and the discrete time linear state space model, we must mathematically derive how a continuous physical system is translated into discrete code. This requires a two-part proof: first, discretizing the continuous differential equations of motion, and second, applying the expectation operator to form the optimal state prediction.
+
+**Continuous-to-Discrete System Discretization**
+
+We begin with the continuous-time linear differential state equation describing the true physics of the system:
+
+$$\dot{\mathbf{x}}(t) = A\mathbf{x}(t) + B\mathbf{u}(t) + \mathbf{w}_c(t)$$
+
+Where $A$ is the continuous system matrix, $B$ is the continuous control input matrix, $\mathbf{u}(t)$ is the control vector, and $\mathbf{w}_c(t)$ is continuous zero-mean white noise.
+
+**Step 1: Isolate the State Variables**
+
+We begin with the standard continuous-time state equation describing our dynamic system:
+
+$$\dot{\mathbf{x}}(t) = A\mathbf{x}(t) + B\mathbf{u}(t) + \mathbf{w}_c(t)$$
+
+To solve for the state vector $\mathbf{x}(t)$, we move all terms containing $\mathbf{x}(t)$ to the left-hand side of the equation:
+
+$$\dot{\mathbf{x}}(t) - A\mathbf{x}(t) = B\mathbf{u}(t) + \mathbf{w}_c(t)$$
+
+**Step 2: Introduce the Matrix Integrating Factor**
+
+In scalar calculus, an equation of the form $\dot{x}(t) - ax(t) = f(t)$ is solved by multiplying the entire equation by an integrating factor $e^{-at}$. In linear systems theory, we apply the exact same logic using matrices. We define our matrix integrating factor as the matrix exponential:
+
+$$e^{-At}$$
+
+The matrix exponential possesses a crucial property: it commutes with its own generating matrix, meaning $A e^{-At} = e^{-At} A$. Consequently, its time derivative follows standard scalar behavior:
+
+$$\frac{d}{dt}\left(e^{-At}\right) = -A e^{-At} = -e^{-At}A$$
+
+We premultiply every term in our isolated state equation by this integrating factor:
+
+$$e^{-At}\dot{\mathbf{x}}(t) - e^{-At}A\mathbf{x}(t) = e^{-At}B\mathbf{u}(t) + e^{-At}\mathbf{w}_c(t)$$
+
+**Step 3: Apply the Matrix Product Rule in Reverse**
+
+
+Look closely at the left-hand side of our equation: $e^{-At}\dot{\mathbf{x}}(t) - e^{-At}A\mathbf{x}(t)$. This expression perfectly matches the expanded form of the matrix product rule for differentiation. 
+
+Recall that the derivative of a product of a matrix function and a vector function is:
+
+$$\frac{d}{dt}\left(e^{-At}\mathbf{x}(t)\right) = e^{-At}\dot{\mathbf{x}}(t) + \left(\frac{d}{dt}e^{-At}\right)\mathbf{x}(t)$$
+
+Substituting our known derivative $\frac{d}{dt}(e^{-At}) = -e^{-At}A$ into the product rule yields:
+
+$$\frac{d}{dt}\left(e^{-At}\mathbf{x}(t)\right) = e^{-At}\dot{\mathbf{x}}(t) - e^{-At}A\mathbf{x}(t)$$
+
+Because this exactly matches the left-hand side of our state equation, we can collapse those two independent terms into a single total derivative:
+
+$$\frac{d}{dt}\left(e^{-At}\mathbf{x}(t)\right) = e^{-At}B\mathbf{u}(t) + e^{-At}\mathbf{w}_c(t)$$
+
+**Step 4: Integrate Over the Definite Interval**
+
+We want to solve this system across a discrete time step from an initial time $t_n$ to a future time $t_{n+1}$. To do this, we integrate both sides of the equation with respect to a dummy time variable $\tau$ over the definite bounds $[t_n, t_{n+1}]$:
+
+$$\int_{t_n}^{t_{n+1}} \frac{d}{d\tau}\left(e^{-A\tau}\mathbf{x}(\tau)\right) d\tau = \int_{t_n}^{t_{n+1}} e^{-A\tau}B\mathbf{u}(\tau) d\tau + \int_{t_n}^{t_{n+1}} e^{-A\tau}\mathbf{w}_c(\tau) d\tau$$
+
+By the Fundamental Theorem of Calculus, the integral of a total derivative on the left-hand side simply evaluates to the function itself evaluated at the upper and lower limits:
+
+$$\left[ e^{-A\tau}\mathbf{x}(\tau) \right]_{t_n}^{t_{n+1}} = \int_{t_n}^{t_{n+1}} e^{-A\tau}B\mathbf{u}(\tau) d\tau + \int_{t_n}^{t_{n+1}} e^{-A\tau}\mathbf{w}_c(\tau) d\tau$$
+
+Evaluating the limits yields:
+
+$$e^{-At_{n+1}}\mathbf{x}(t_{n+1}) - e^{-At_n}\mathbf{x}(t_n) = \int_{t_n}^{t_{n+1}} e^{-A\tau}B\mathbf{u}(\tau) d\tau + \int_{t_n}^{t_{n+1}} e^{-A\tau}\mathbf{w}_c(\tau) d\tau$$
+
+**Step 5: Isolate the Future State Vector**
+
+To solve explicitly for the future state vector $\mathbf{x}(t_{n+1})$, we first move the initial state term to the right-hand side:
+
+$$e^{-At_{n+1}}\mathbf{x}(t_{n+1}) = e^{-At_n}\mathbf{x}(t_n) + \int_{t_n}^{t_{n+1}} e^{-A\tau}B\mathbf{u}(\tau) d\tau + \int_{t_n}^{t_{n+1}} e^{-A\tau}\mathbf{w}_c(\tau) d\tau$$
+
+Finally, we isolate $\mathbf{x}(t_{n+1})$ by premultiplying the entire equation by the inverse of the leading matrix exponential, which is $e^{At_{n+1}}$:
+
+$$\mathbf{x}(t_{n+1}) = e^{At_{n+1}}e^{-At_n}\mathbf{x}(t_n) + e^{At_{n+1}}\int_{t_n}^{t_{n+1}} e^{-A\tau}B\mathbf{u}(\tau) d\tau + e^{At_{n+1}}\int_{t_n}^{t_{n+1}} e^{-A\tau}\mathbf{w}_c(\tau) d\tau$$
+
+**Step 6: Combine the Matrix Exponentials**
+
+Because matrix exponentials of the same matrix commute ($e^X e^Y = e^{X+Y}$ if $X$ and $Y$ commute), we can algebraically combine the terms. 
+
+For the first term:
+$$e^{At_{n+1}}e^{-At_n} = e^{A(t_{n+1}-t_n)}$$
+
+For the integral terms, because the matrix $e^{At_{n+1}}$ is independent of the integration variable $\tau$, we can pass it directly inside the integral signs:
+
+$$e^{At_{n+1}}\int_{t_n}^{t_{n+1}} e^{-A\tau}(\dots) d\tau = \int_{t_n}^{t_{n+1}} e^{At_{n+1}}e^{-A\tau}(\dots) d\tau = \int_{t_n}^{t_{n+1}} e^{A(t_{n+1}-\tau)}(\dots) d\tau$$
+
+Substituting these simplified exponents back into our equation completes the rigorous derivation:
+
+$$\mathbf{x}(t_{n+1}) = e^{A(t_{n+1}-t_n)}\mathbf{x}(t_n) + \int_{t_n}^{t_{n+1}} e^{A(t_{n+1}-\tau)} B\mathbf{u}(\tau) d\tau + \int_{t_n}^{t_{n+1}} e^{A(t_{n+1}-\tau)} \mathbf{w}_c(\tau) d\tau$$
+
+Applying a Zero-Order Hold (ZOH) assumption states that the control input vector remains constant over the interval $\Delta t$ ($\mathbf{u}(\tau) = \mathbf{u}_n$). Performing a change of variables letting $\lambda = t_{n+1} - \tau$ (implying $d\tau = -d\lambda$) shifts the limits of integration and simplifies the expression to:
+
+$$\mathbf{x}_{n+1} = e^{A\Delta t}\mathbf{x}_n + \left(\int_{0}^{\Delta t} e^{A\lambda} d\lambda B\right)\mathbf{u}_n + \mathbf{w}_n$$
+
+
+
+
+
+This yields the discrete-time **True State Equation**:
+
+$$\mathbf{x}_{n+1} = F\mathbf{x}_n + G\mathbf{u}_n + \mathbf{w}_n$$
+
+Where the discrete matrices are analytically defined via the matrix exponential:
+* **State Transition Matrix:** $F = e^{A\Delta t}$
+* **Discrete Input Matrix:** $G = \int_{0}^{\Delta t} e^{A\lambda} d\lambda B$
+* **Discrete Process Noise Vector:** $\mathbf{w}_n = \int_{t_n}^{t_{n+1}} e^{A(t_{n+1}-\tau)} \mathbf{w}_c(\tau) d\tau$
+
+
+**The Conditional Expectation Proof**
+
+The equation above governs the true state vector $\mathbf{x}_{n+1}$. To compute the optimal state prediction (the extrapolated estimate $\hat{\mathbf{x}}_{n+1|n}$), we must evaluate the conditional expectation given all historical measurements up to the current step $n$ (denoted as $\mathbf{Z}_n$):
+
+$$\hat{\mathbf{x}}_{n+1|n} = E[\mathbf{x}_{n+1} \mid \mathbf{Z}_n]$$
+
+Substituting the true discrete state equation inside the expectation operator yields:
+
+$$\hat{\mathbf{x}}_{n+1|n} = E[F\mathbf{x}_n + G\mathbf{u}_n + \mathbf{w}_n \mid \mathbf{Z}_n]$$
+
+Utilizing the mathematical linearity of the expectation operator, we distribute it across the individual terms:
+
+$$\hat{\mathbf{x}}_{n+1|n} = F E[\mathbf{x}_n \mid \mathbf{Z}_n] + G E[\mathbf{u}_n \mid \mathbf{Z}_n] + E[\mathbf{w}_n \mid \mathbf{Z}_n]$$
+
+We evaluate each term based on fundamental probability axioms:
+1. The conditional expectation of the true state given historical data is our current updated state estimate: $E[\mathbf{x}_n \mid \mathbf{Z}_n] = \hat{\mathbf{x}}_{n|n}$.
+2. The control vector $\mathbf{u}_n$ is a known deterministic input, meaning: $E[\mathbf{u}_n \mid \mathbf{Z}_n] = \mathbf{u}_n$.
+3. The discrete process noise $\mathbf{w}_n$ is a zero-mean white process completely uncorrelated with past measurement history $\mathbf{Z}_n$, meaning its expected value vanishes: $E[\mathbf{w}_n \mid \mathbf{Z}_n] = \mathbf{0}$.
+
+Combining these evaluations yields the final, optimal discrete state extrapolation equation used in the Kalman Filter prediction loop:
+
+$$\hat{\mathbf{x}}_{n+1|n} = F\hat{\mathbf{x}}_{n|n} + G\mathbf{u}_n$$
+
+
+
+
+
+
+
+
+
+
+
+
 ## Observability and controllability.
 
 Before deploying an estimation algorithm, an engineer must answer two fundamental questions: Can I steer this system? And can I actually see what I am trying to track?
@@ -1391,17 +1535,205 @@ This exact integration roadblock is the birthplace of the **Cubature Kalman Filt
 # Part III: The Classic Standard Kalman Filter (KF) {-}
 
 #  Derivation of the Standard KF
+In Chapter 6, we hit a mathematical wall. The denominator of Bayes' Theorem (the Evidence integral) is analytically impossible to solve for non-linear systems. The Cubature Kalman Filter (CKF) will eventually be our numerical solution to that problem. 
 
-## Mathematical proof of the linear Kalman Filter from Bayesian principles.
+However, before we can understand the CKF, we must look at the mathematical miracle that occurs when a dynamic system is perfectly linear. When the math behaves, the infinite integrals of Bayes' Theorem beautifully collapse into a set of five simple matrix equations. This is the **Standard Kalman Filter (KF)**.
+
+## The Linear Gaussian Assumption
+
+To derive the standard KF from Bayesian principles, we must make two absolute, uncompromising assumptions about our target tracking system:
+
+1.  **Hypothesis A: Linearity:** The State Transition Matrix ($F$) and the Measurement Matrix ($H$) must be perfectly linear. A constant velocity drone moving across a 2D radar screen is linear. A drone executing a banked turn measured by a monocular camera's bearing angle ($\arctan$) is non-linear.
+   
+* **The State Transition Model:** $\mathbf{x}_k = F\mathbf{x}_{k-1} + \mathbf{w}_k$
+* **The Measurement Model:** $\mathbf{z}_k = H\mathbf{x}_k + \mathbf{v}_k$
+  
+  *(A constant velocity drone moving across a 2D radar screen is linear. A drone executing a banked turn measured by a monocular camera's non-linear bearing angle ($\arctan$) violates this assumption).*
+
+2.  **Hypothesis B:Gaussian Noise:** The Process Noise ($Q$) and the Measurement Noise ($R$) must be normally distributed bell curves with a mean of zero. They cannot be heavily skewed by systematic sensor bias.
+   
+* **Process Noise:** $\mathbf{w}_k \sim \mathcal{N}(\mathbf{0}, Q)$
+* **Measurement Noise:** $\mathbf{v}_k \sim \mathcal{N}(\mathbf{0}, R)$
+
+*(This means the noise must be truly random. It cannot be heavily skewed or offset by a systematic sensor bias).*
+
+
+**The Mathematical Miracle:**
+
+If—and only if—these two conditions are met, a profound rule of statistics takes over: *Any linear transformation of a Gaussian distribution results in another perfect Gaussian distribution.* Because everything in the pipeline remains a perfect bell curve, we never actually have to solve the impossible integrals of the Recursive Bayes Filter. We only have to track two parameters: the Mean ($\hat{\mathbf{x}}$) and the Covariance ($P$).
 
 
 
-## The Minimum Mean Square Error (MMSE) estimator.
+## The Minimum Mean Square Error (MMSE) Estimator
+
+Before we derive the equations, we must answer a critical question: What makes the Kalman Filter "optimal"? 
+
+In estimation theory, optimality is defined by a loss function. We want an estimator that penalizes errors. The most common penalty is the squared error: if our prediction is off by 2 meters, the penalty is 4; if it is off by 10 meters, the penalty is 100. Squaring the error heavily punishes large deviations.
+
+To understand why we define "optimality" using a loss function, we have to step away from the pure math for a second and look at the philosophy of engineering.
+
+When you build a tracking system, your filter is constantly generating a state estimate (x^). Because sensors have noise, your estimate will never be exactly equal to the true state (x). You will always be wrong by some amount.
+
+Since you cannot be perfect, you have to decide how you want to be wrong. A Loss Function (or Cost Function), denoted as L(x,x^), is the mathematical penalty you assign to your filter for making an error.
+
+By changing the rules of the penalty, you completely change what the filter considers to be the "optimal" guess. Here are the three classic loss functions in estimation theory:
+
+
+1.  **The Quadratic Loss: Minimum Mean Square Error (MMSE)**
+
+- **The Penalty**: $\mathbf{L}=(\mathbf{x}−\mathbf{\hat{x}})^2$
+  
+- **The Philosophy**: "Small errors are acceptable, but large errors are catastrophic." Because the error is squared, being off by 1 meter adds a penalty of 1. Being off by 10 meters adds a massive penalty of 100.
+  
+- **The Optimal Point**: To minimize this specific penalty across a probability distribution, the math dictates that your best guess is the Mean (the center of mass/average).
+- **The Engineering Use**: This is what the Kalman Filter uses. In aerospace, an interceptor missile can easily adjust its fins to correct a 1-meter tracking error. But a 10-meter error means the target escapes the missile's seeker cone entirely. We heavily punish large deviations.
+
+
+2.   **The Absolute Loss: Mean Absolute Error (MAE)**
+
+- **The Penalty** : $\mathbf{L}=\left|\mathbf{x}−\mathbf{\hat{x}}\right|$
+- **The Philosophy**: "All errors are penalized proportionally." Being off by 10 meters is exactly ten times worse than being off by 1 meter. There is no exponential explosion of the penalty.
+- **The Optimal Point**: To minimize this penalty, the math dictates that your best guess is the Median (the exact middle value, where 50% of the probability is to the left and 50% is to the right).
+- **The Engineering Use**: This is used in robust estimation where you expect massive sensor outliers. If your radar occasionally glitches and reports the drone is 5,000 miles away, squaring that error (MMSE) would destroy your filter. Absolute loss ignores the extreme leverage of the outlier.
+
+
+3.  **The Uniform Loss: Maximum A Posteriori (MAP)**
+
+- **The Penalty**: "Hit or Miss." The penalty is 0 if you are exactly right, and 1 if you are wrong by any amount.
+- **The Philosophy**: "I only care about being exactly right. A miss by 1 inch is identical to a miss by a mile."
+- **The Optimal Point**: To minimize this penalty, your best guess is the Mode (the absolute highest peak of the probability distribution).
+- **The Engineering Use**: This is heavily used in classification and computer vision (e.g., "Is this bounding box a Drone or a Bird?"). You cannot be "average" between a bird and a drone; you must pick the single most likely category.
+
+**The Gaussian Miracle (Why Kalman Chose MMSE)**
+
+If different loss functions result in different "optimal" answers, why is the Kalman Filter locked into the MMSE?
+
+This is where the magic of the **Linear Gaussian Assumption (Section 7.1)** comes into play. For a perfectly symmetrical, normal Gaussian bell curve, the Mean, the Median, and the Mode are all located at the exact same physical point (the center peak).
+
+For a linear Kalman filter, it mathematically does not matter which of the three loss functions you choose. By solving for the MMSE, Rudolf Kalman essentially solved for all of them simultaneously. However, the squared error (x2) is mathematically much easier to differentiate and minimize via calculus than an absolute value (∣x∣), which is why the MMSE is the gold standard for linear derivation.
+
+The **Minimum Mean Square Error (MMSE)** estimator is the mathematical function that finds the state estimate $\hat{\mathbf{x}}$ that minimizes the expected value of the squared error:
+
+$$J = E\left[ (\mathbf{x} - \hat{\mathbf{x}})^T (\mathbf{x} - \hat{\mathbf{x}}) \right]$$
+
+For any generic probability distribution, proving the MMSE is difficult. However, for a Gaussian distribution, the MMSE estimate is simply the **mean** (the peak of the bell curve). Because Bayes' Theorem fused our linear models into a perfect Posterior Gaussian, finding the peak of that Posterior gives us the mathematically guaranteed lowest possible tracking error.
+
+**The Engineering Dilemma: Multimodal Failure**
+
+The MMSE is brilliant, but it is entirely dependent on the Gaussian assumption. Consider tracking a UAV that flies behind a dense cloud. You predict it might keep flying straight (Hypothesis A), or it might turn left to hide in a valley (Hypothesis B). 
+
+Your true probability distribution is now *multimodal*—it has two distinct peaks, like a camel's back. 
+If you blindly apply an MMSE estimator (like the Kalman Filter) to a multimodal distribution, it will average the two peaks together. It will calculate the "optimal" mean state as being located perfectly in the empty sky between the straight path and the valley path. The MMSE will confidently track a target that physically does not exist. This is why we will eventually need the IMM-CKF architecture to manage multiple distinct models.
+
+## Derivation of the Standard Kalman Filter:
+
+With the MMSE and Linear assumptions established, we can derive the Kalman Filter directly from the recursive Bayes equations.
+
+We start with the Prediction Step (the Chapman-Kolmogorov equation). Because our transition model $\mathbf{x}_k = F\mathbf{x}_{k-1} + \mathbf{w}_k$ is linear and Gaussian, we simply apply the Expectation operator ($E[\cdot]$) to find the new Mean and Covariance:
+
+1.  ** Predicted Mean:**
+
+$$\hat{\mathbf{x}}_{k|k-1} = E[F\mathbf{x}_{k-1} + \mathbf{w}_k]$$
+Because the noise has a mean of zero ($E[\mathbf{w}_k] = 0$), this simplifies to:
+$$\hat{\mathbf{x}}_{k|k-1} = F\hat{\mathbf{x}}_{k-1|k-1}$$
+
+The Update Step (Bayes' Theorem) requires fusing the predicted state with the measurement $\mathbf{z}_k$. We calculate the Residual (Innovation), which is the difference between what the sensor saw and what we predicted it would see:
+$$\mathbf{y}_k = \mathbf{z}_k - H\hat{\mathbf{x}}_{k|k-1}$$
+
+To minimize the MMSE loss function, we want to add a fraction of this residual to our predicted state. This optimal fraction is the **Kalman Gain ($K$)**.
+
+> **Deep Dive: The Algebraic Derivation of the Kalman Gain**
+
+> In Chapter 4, we showed geometrically how the 1D Kalman Gain is born from multiplying two scalar Gaussian equations. Scaling this proof up to multidimensional matrices requires taking the derivative of the MMSE loss function and setting it to zero. For the rigorous, step-by-step matrix calculus proving the derivation of the multidimensional Kalman Gain, refer to **Appendix: Matrix Derivation of the Kalman Filter**.
+
+## The Standard Algorithm and C++ Implementation
+
+The derivations result in the five legendary equations of the Standard Linear Kalman Filter. Every tracking engineer must know these by heart.
+
+**Prediction Step (Time Update):**
+
+1.   State Prediction: $\hat{\mathbf{x}}_{k|k-1} = F\hat{\mathbf{x}}_{k-1|k-1}$
+   
+2.   Covariance Prediction: $P_{k|k-1} = F P_{k-1|k-1} F^T + Q$
+
+**Update Step (Measurement Update):**
+
+3.   Innovation Covariance & Kalman Gain: 
+   $$S_k = H P_{k|k-1} H^T + R$$
+   $$K_k = P_{k|k-1} H^T S_k^{-1}$$
+
+4.   State Update: $\hat{\mathbf{x}}_{k|k} = \hat{\mathbf{x}}_{k|k-1} + K_k(\mathbf{z}_k - H\hat{\mathbf{x}}_{k|k-1})$
+   
+5.   Covariance Update: $P_{k|k} = (I - K_k H) P_{k|k-1}$
+
+**High-Performance C++ Implementation**
+Translating these five equations into code is incredibly straightforward using a modern linear algebra library. Here is a highly optimized Eigen implementation for an edge-deployed UAV interceptor. 
+
+Notice that we compute the inverse of the $S$ matrix (`S.inverse()`). Because $S$ has the dimensions of the measurement space (e.g., a $2 \times 2$ matrix for an X/Y radar hit), this inversion is computationally cheap, making the linear KF incredibly fast.
+
+```cpp
+#include <Eigen/Dense>
+
+using namespace Eigen;
+
+class LinearKalmanFilter {
+private:
+    VectorXd x; // State estimate
+    MatrixXd P; // Estimate covariance
+
+    MatrixXd F; // State transition matrix
+    MatrixXd Q; // Process noise covariance
+    MatrixXd H; // Measurement matrix
+    MatrixXd R; // Measurement noise covariance
+    MatrixXd I; // Identity matrix
+
+public:
+    // Constructor to initialize matrix dimensions
+    LinearKalmanFilter(int state_dim, int meas_dim) {
+        x = VectorXd::Zero(state_dim);
+        P = MatrixXd::Identity(state_dim, state_dim);
+        F = MatrixXd::Identity(state_dim, state_dim);
+        Q = MatrixXd::Identity(state_dim, state_dim);
+        H = MatrixXd::Zero(meas_dim, state_dim);
+        R = MatrixXd::Identity(meas_dim, meas_dim);
+        I = MatrixXd::Identity(state_dim, state_dim);
+    }
+
+    // Phase 1: Prediction Step
+    void predict() {
+        x = F * x;
+        P = F * P * F.transpose() + Q;
+    }
+
+    // Phase 2: Update Step
+    void update(const VectorXd& z) {
+        // Calculate Innovation
+        VectorXd y = z - (H * x);
+
+        // Calculate Innovation Covariance (S)
+        MatrixXd S = H * P * H.transpose() + R;
+
+        // Calculate Kalman Gain (K)
+        MatrixXd K = P * H.transpose() * S.inverse();
+
+        // Update State
+        x = x + (K * y);
+
+        // Update Covariance using the numerically stable Joseph Form
+        // P = (I - K*H) * P
+        MatrixXd I_KH = I - (K * H);
+        P = I_KH * P; 
+    }
+
+    // Setters for matrices omitted for brevity...
+};
+
+```
+
 
 #  Tuning and Diagnostics
 
 ## Covariance matching and innovation analysis.
-
 
 
 ## Filter divergence and numerical stability considerations.
@@ -2197,6 +2529,61 @@ Because the exact math fails, tracking engineers must approximate.
 
 * The **Extended Kalman Filter (EKF)** attempts to solve this by calculating the Taylor Series derivative (Jacobian) of $\arctan(Y/X)$ and forcibly pretending the geometry is a straight line. If the UAV's spatial uncertainty is large, this forced flattening drastically distorts the math, and the filter fails.
 * The **Cubature Kalman Filter (CKF)** accepts that the integral cannot be solved via calculus. Instead, it utilizes spherical-radial integration theory. It strategically selects $2n$ discrete physical coordinate points, runs those exact numbers through the true, uncorrupted $\arctan(Y/X)$ function, and takes the weighted average of the results. By replacing an impossible continuous integral with a finite set of discrete deterministic evaluations, the CKF achieves near-optimal estimation without ever needing to calculate a derivative.
+
+
+# Matrix Derivation of the Kalman Filter
+
+This appendix provides the rigorous matrix calculus to derive the multidimensional Kalman Gain from the Minimum Mean Square Error (MMSE) cost function.
+
+1.   **Defining the Error Covariance**
+
+Let our true state be $\mathbf{x}$. After fusing a measurement, our updated estimate is $\hat{\mathbf{x}}_{k|k}$. The estimation error is defined as:
+$$\tilde{\mathbf{x}} = \mathbf{x} - \hat{\mathbf{x}}_{k|k}$$
+
+The Covariance Matrix of this error ($P_{k|k}$) is the expected value of the outer product of the error:
+$$P_{k|k} = E[\tilde{\mathbf{x}} \tilde{\mathbf{x}}^T]$$
+
+We know from our filter structure that the update equation is:
+$$\hat{\mathbf{x}}_{k|k} = \hat{\mathbf{x}}_{k|k-1} + K(\mathbf{z}_k - H\hat{\mathbf{x}}_{k|k-1})$$
+
+Substitute the true measurement model ($\mathbf{z}_k = H\mathbf{x} + \mathbf{v}$) into the update equation, and then substitute that result into the error equation $\tilde{\mathbf{x}}$. After expanding the expectation and recognizing that the prediction error and the measurement noise $\mathbf{v}$ are entirely uncorrelated ($E[\mathbf{v}\tilde{\mathbf{x}}^T] = 0$), the updated covariance expands to:
+
+$$P_{k|k} = (I - KH) P_{k|k-1} (I - KH)^T + KRK^T$$
+
+This is the exact **Joseph Form** of the covariance update equation.
+
+
+2.   **Minimizing the Trace (The MMSE Cost Function)**
+   
+The trace of a matrix (the sum of its diagonal elements) represents the total variance of the system. To find the MMSE, we must find the specific Kalman Gain matrix ($K$) that minimizes the trace of $P_{k|k}$.
+
+Cost Function: $J = \text{Tr}(P_{k|k})$
+
+We expand the Joseph form:
+$$\text{Tr}(P_{k|k}) = \text{Tr}(P_{k|k-1} - KHP_{k|k-1} - P_{k|k-1}H^T K^T + K(HP_{k|k-1}H^T + R)K^T)$$
+
+
+3.   **Matrix Calculus**
+
+To find the minimum, we take the partial derivative of the trace with respect to the matrix $K$ and set it to zero:
+$$\frac{\partial \text{Tr}(P_{k|k})}{\partial K} = 0$$
+
+Using standard matrix derivative identities ($\frac{\partial \text{Tr}(AB^T)}{\partial A} = B$ and $\frac{\partial \text{Tr}(ACA^T)}{\partial A} = 2AC$ if $C$ is symmetric), we differentiate the expanded equation:
+
+$$\frac{\partial \text{Tr}(P_{k|k})}{\partial K} = -2(P_{k|k-1}H^T)^T + 2K(HP_{k|k-1}H^T + R) = 0$$
+
+
+4.  **Solving for K**
+   
+Divide by 2 and isolate $K$:
+$$K(HP_{k|k-1}H^T + R) = P_{k|k-1}H^T$$
+
+The term inside the parentheses is the Innovation Covariance, defined as $S = HP_{k|k-1}H^T + R$. We substitute $S$ and multiply both sides by $S^{-1}$:
+
+$$K S S^{-1} = P_{k|k-1}H^T S^{-1}$$
+$$K = P_{k|k-1}H^T (HP_{k|k-1}H^T + R)^{-1}$$
+
+This mathematically proves that this specific formulation of $K$ guarantees the absolute minimum possible mean squared error for a linear system.
 
 # Bibliography {-}
 ## Articles {-}
