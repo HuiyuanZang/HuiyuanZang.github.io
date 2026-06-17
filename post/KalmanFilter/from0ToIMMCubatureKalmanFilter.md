@@ -1871,24 +1871,176 @@ public:
 
 
 # Part IV: Conquering Non-Linearity {-}
+
 # The Extended Kalman Filter (EKF)
 
-## Linearizing non-linear functions using the Jacobian.
+In Part III, we proved that the Standard Kalman Filter is the optimal minimum-mean-square-error (MMSE) estimator, but only if the system is perfectly linear. 
 
-## Mathematical proof and limitations of the EKF (truncation errors).
+In aerospace and robotics, perfect linearity does not exist. A drone banking into a coordinated turn utilizes sine and cosine functions. A ground-based radar tracking a satellite measures slant range (a square root function) and elevation angles (an arctangent function). 
 
-# The Unscented Kalman Filter (UKF)
+The Extended Kalman Filter (EKF) was the aerospace industry's first great triumph over non-linear geometry. It powered the Apollo navigation computers and remains one of the most widely deployed algorithms in embedded systems today.
+
+## Linearizing non-linear functions using the Jacobian
+
+In a non-linear system, we replace our constant matrices ($F$ and $H$) with generic, non-linear mathematical functions, denoted as $f(\cdot)$ and $h(\cdot)$.
+
+* **Non-Linear State Transition:** $x_k = f(x_{k-1}) + w_k$
+* **Non-Linear Measurement:** $z_k = h(x_k) + v_k$
+
+Recall the statistical rule that governed Chapter 7.1: *Any linear transformation of a Gaussian distribution results in another perfect Gaussian distribution.* The rule that governs Chapter 9 is: *A non-linear transformation of a Gaussian is NOT a Gaussian.*
+
+If you push a perfectly bell-shaped Gaussian probability distribution through an arctangent function, the output is a warped, skewed, asymmetric lump. Because the Kalman Filter requires the tracking covariance to remain a perfect, symmetric ellipse, non-linear functions mathematically break the recursive loop.
+
+**Linearization via Calculus**
+
+To fix this, the EKF essentially cheats the geometry. It accepts that it cannot push a covariance matrix through a curve, so it uses calculus to turn the curve into a straight line. 
+
+This is achieved using a **First-Order Taylor Series Expansion**. By calculating the partial derivatives of the non-linear function evaluated exactly at our current state estimate, we find the multi-dimensional tangent line. 
+
+This matrix of partial derivatives is called the **Jacobian**. We must calculate two Jacobians during every single time step:
+
+1. **The State Transition Jacobian ($F_k$):**
+$$F_k = \left. \frac{\partial f(x)}{\partial x} \right|_{x = \hat{x}_{k-1|k-1}}$$
+
+2. **The Measurement Jacobian ($H_k$):**
+$$H_k = \left. \frac{\partial h(x)}{\partial x} \right|_{x = \hat{x}_{k|k-1}}$$
+
+By evaluating the derivative at our current best guess of the target's location, we create a temporary linear matrix ($F_k$ or $H_k$) that acts as a "flat mirror" of the curved space at that exact coordinate.
+
+**The EKF Algorithm**
+
+The genius of the EKF is that it splits the tracking math in half. 
+
+1. **The State:** We push the mean state vector ($\hat{x}$) through the true, uncorrupted, non-linear functions ($f$ and $h$) to ensure our physical location is as accurate as possible.
+   
+2. **The Covariance:** We push the uncertainty matrix ($P$) through the flattened, linear Jacobian matrices ($F_k$ and $H_k$) to ensure the math remains a perfect Gaussian.
+
+**Prediction Step:**
+
+1. State: $\hat{x}_{k|k-1} = f(\hat{x}_{k-1|k-1})$
+   
+2. Covariance: $P_{k|k-1} = F_k P_{k-1|k-1} F_k^T + Q$
+
+**Update Step:**
+
+3. Innovation & Gain: 
+   $$S_k = H_k P_{k|k-1} H_k^T + R$$
+   $$K_k = P_{k|k-1} H_k^T S_k^{-1}$$
+
+4. State: $\hat{x}_{k|k} = \hat{x}_{k|k-1} + K_k(z_k - h(\hat{x}_{k|k-1}))$
+   
+5. Covariance: $P_{k|k} = (I - K_k H_k) P_{k|k-1}$
+
+
+
+## Mathematical proof and limitations of the EKF (truncation errors)
+
+If the EKF is so brilliant, why did the aerospace industry spend millions of dollars inventing the Unscented and Cubature Kalman Filters to replace it? The EKF has a fatal mathematical flaw: **Truncation Error**.
+
+When we use a Taylor Series to create our tangent line (Jacobian), we delete all the higher-order derivatives (the acceleration of the curve, the jerk, etc.). We truncate the math. 
+
+A tangent line is only an accurate representation of a curve if you are extremely close to the exact point of the tangent.  If your target is flying smoothly and your sensor is highly accurate (your Covariance $P$ is tiny), the EKF works perfectly because your entire "uncertainty bubble" fits safely near the tangent point.
+  
+However, if your target pulls a high-G evasive maneuver, or if your sensor goes blind and your Covariance $P$ expands massively, your uncertainty bubble spreads out. At the edges of that wide bubble, the straight tangent line is nowhere near the true curved geometry. 
+
+When the EKF pushes a wide covariance through a tangent line that doesn't match reality, the filter calculates the wrong Kalman Gain, updates in the wrong direction, and suffers catastrophic **Filter Divergence**.
+
+**Engineering Example & C++ Code: Radar Tracking**
+
+Let's look at the classic EKF engineering test case: A 2D radar tracking an aircraft. 
+The aircraft flies in Cartesian coordinates (X, Y), so our state vector is $x = [x, y, v_x, v_y]^T$. 
+However, the radar measures in Polar coordinates: slant range ($r$) and bearing angle ($\theta$). Our measurement vector is $z = [r, \theta]^T$.
+
+The non-linear measurement function $h(x)$ mapping the Cartesian state to the Polar sensor is:
+$$h(x) = \begin{bmatrix} \sqrt{x^2 + y^2} \\ \arctan\left(\frac{y}{x}\right) \end{bmatrix}$$
+
+Because this is non-linear, we must calculate the $2 \times 4$ Measurement Jacobian matrix ($H_k$) by taking the partial derivatives of $r$ and $\theta$ with respect to $x$ and $y$.
+
+> **Deep Dive: EKF Matrix Derivations and the Radar Jacobian**
+
+> We have stated that the EKF requires a discrete State Transition Jacobian ($F_k$) and a Measurement Jacobian ($H_k$). But how do we actually discretize a continuous-time non-linear physics model to find $F_k$? And what is the exact step-by-step calculus required to derive the $2 \times 4$ Polar-to-Cartesian radar Jacobian? For the rigorous mathematical proofs and derivative calculations, refer to **Appendix K: EKF Derivations: Matrices and Jacobians**.
+
+**C++ Implementation**
+
+Notice in the code below how the true non-linear $h(x)$ is used to calculate the innovation vector `y`, but the linear Jacobian `H_j` is used to calculate the covariance `S` and the Kalman Gain `K`.
+
+```cpp
+#include <Eigen/Dense>
+#include <cmath>
+
+using namespace Eigen;
+
+class RadarEKF {
+private:
+    VectorXd x; // State: [x, y, vx, vy]
+    MatrixXd P; // Covariance
+    MatrixXd R; // Radar Noise (Range variance, Bearing variance)
+
+public:
+    // ... Constructor and Linear Prediction Step omitted for brevity ...
+
+    void updateRadar(double range, double bearing) {
+        // Extract current state estimates
+        double px = x(0);
+        double py = x(1);
+        
+        // Prevent divide-by-zero if target is exactly on top of the radar
+        double r2 = px*px + py*py;
+        if (r2 < 0.0001) r2 = 0.0001; 
+        double r = std::sqrt(r2);
+
+        // 1. Calculate the Measurement Jacobian (H_j)
+        MatrixXd H_j = MatrixXd::Zero(2, 4);
+        H_j(0, 0) = px / r;
+        H_j(0, 1) = py / r;
+        // Velocities do not affect position measurement, so H_j(0,2) and H_j(0,3) are 0
+        
+        H_j(1, 0) = -py / r2;
+        H_j(1, 1) = px / r2;
+
+        // 2. Calculate Predicted Measurement using True Non-Linear h(x)
+        VectorXd z_pred(2);
+        z_pred(0) = r;
+        z_pred(1) = std::atan2(py, px);
+
+        // 3. Calculate Innovation
+        VectorXd z_meas(2);
+        z_meas << range, bearing;
+        VectorXd y = z_meas - z_pred;
+
+        // Normalize bearing innovation to stay within [-pi, pi]
+        while (y(1) > M_PI) y(1) -= 2.0 * M_PI;
+        while (y(1) < -M_PI) y(1) += 2.0 * M_PI;
+
+        // 4. Update Math (Using the Jacobian H_j!)
+        MatrixXd S = H_j * P * H_j.transpose() + R;
+        MatrixXd K = P * H_j.transpose() * S.inverse();
+
+        x = x + (K * y);
+        MatrixXd I = MatrixXd::Identity(4, 4);
+        P = (I - K * H_j) * P; // (Use Joseph form in production)
+    }
+};
+```
+
+
+# The Unscented Kalman Filter (UKF) 
 
 ## The Unscented Transform (UT): Choosing sigma points.
 
 
 ## Proof of how UT captures mean and covariance better than linearization.
 
-#  The Cubature Kalman Filter (CKF)
+#  The Cubature Kalman Filter (CKF) 
 
 ## The spherical-radial cubature rule.
 ## Mathematical derivation of cubature points.
 ## Comparative analysis: CKF vs. UKF in high-dimensional state spaces.
+
+
+# Advanced Frontiers 
+
+# The Engineer's Matrix 
 
 
 # Part V: Maneuvering Targets and Multiple Models {-}
@@ -2770,6 +2922,70 @@ In physical tracking systems, $H$ is rarely square (it maps a large state to a s
 $$\hat{Q}_k \approx H^+ \left( \hat{C}_{\mathbf{y}_k} - R \right) (H^+)^T - F P_{k-1|k-1} F^T$$
 
 Because this raw calculation can sometimes produce negative diagonal values due to statistical noise in the sliding window, a production implementation will immediately zero out any negative eigenvalues, or run a max(0, val) check on the diagonals of $\hat{Q}_k$ to ensure it remains positive-definite before injecting it back into the Kalman Filter prediction loop.
+
+# K: EKF Derivations: Matrices and Jacobians {-}
+
+This appendix provides the rigorous mathematical derivations necessary to implement the Extended Kalman Filter, covering both the discretization of continuous non-linear models and the calculus required for Polar-to-Cartesian radar tracking.
+
+## Continuous to Discrete EKF State Transition {-}
+
+If the physical system is defined by a continuous-time non-linear differential equation $\dot{x} = f_c(x, u)$, we cannot directly apply the discrete EKF formulas. We must first linearize the continuous system, and then discretize it.
+
+**Step A: Continuous Linearization**
+
+We calculate the continuous-time Jacobian matrix $A(t)$ by taking the partial derivatives of the continuous physics model evaluated at the current estimate:
+$$A(t) = \left. \frac{\partial f_c(x, u)}{\partial x} \right|_{x=\hat{x}}$$
+
+**Step B: Discretization**
+
+Once we have the linear $A(t)$ matrix, we can discretize it over the time step $\Delta t$ using the matrix exponential:
+$$F_k = e^{A(t)\Delta t}$$
+
+For embedded systems where calculating a matrix exponential is too CPU-intensive, engineers frequently use the **First-Order Euler Approximation**:
+$$F_k \approx I + A(t)\Delta t$$
+Where $I$ is the identity matrix. This is the standard transition Jacobian used in most real-time aerospace EKFs.
+
+## Derivation of the Radar Measurement Jacobian {-}
+
+In Chapter 9.2, we introduced the $2 \times 4$ Measurement Jacobian ($H_k$) for a 2D radar mapping Cartesian state $[x, y, v_x, v_y]^T$ to Polar measurements $[r, \theta]^T$.
+
+The exact non-linear mapping $h(x)$ is:
+
+1. $r = \sqrt{x^2 + y^2}$
+   
+2. $\theta = \arctan(y/x)$
+
+The Jacobian matrix requires calculating the partial derivative of each measurement equation with respect to each state variable:
+
+$$H_k = \begin{bmatrix} 
+\frac{\partial r}{\partial x} & \frac{\partial r}{\partial y} & \frac{\partial r}{\partial v_x} & \frac{\partial r}{\partial v_y} \\
+\frac{\partial \theta}{\partial x} & \frac{\partial \theta}{\partial y} & \frac{\partial \theta}{\partial v_x} & \frac{\partial \theta}{\partial v_y}
+\end{bmatrix}$$
+
+Because the radar only measures position and not velocity, the partial derivatives with respect to $v_x$ and $v_y$ are strictly zero. We only need to calculate the position derivatives.
+
+**1. Range Derivatives (Chain Rule):**
+
+$$\frac{\partial r}{\partial x} = \frac{\partial}{\partial x}(x^2 + y^2)^{1/2} = \frac{1}{2}(x^2 + y^2)^{-1/2}(2x) = \frac{x}{\sqrt{x^2 + y^2}} = \frac{x}{r}$$
+
+$$\frac{\partial r}{\partial y} = \frac{\partial}{\partial y}(x^2 + y^2)^{1/2} = \frac{y}{\sqrt{x^2 + y^2}} = \frac{y}{r}$$
+
+**2. Bearing Derivatives (Quotient Rule):**
+
+Recall the standard derivative of arctangent: $\frac{d}{du}\arctan(u) = \frac{1}{1+u^2} \cdot u'$.
+
+$$\frac{\partial \theta}{\partial x} = \frac{1}{1 + (y/x)^2} \cdot \left(-\frac{y}{x^2}\right) = \frac{x^2}{x^2 + y^2} \cdot \left(-\frac{y}{x^2}\right) = \frac{-y}{x^2 + y^2} = \frac{-y}{r^2}$$
+
+$$\frac{\partial \theta}{\partial y} = \frac{1}{1 + (y/x)^2} \cdot \left(\frac{1}{x}\right) = \frac{x^2}{x^2 + y^2} \cdot \left(\frac{1}{x}\right) = \frac{x}{x^2 + y^2} = \frac{x}{r^2}$$
+
+**3. The Final Jacobian Matrix:**
+
+Substituting these analytical derivatives back into the matrix yields the exact $H_k$ used in the C++ implementation:
+
+$$H_k = \begin{bmatrix} 
+\frac{x}{r} & \frac{y}{r} & 0 & 0 \\
+\frac{-y}{r^2} & \frac{x}{r^2} & 0 & 0 
+\end{bmatrix}$$
 
 
 # Bibliography {-}
