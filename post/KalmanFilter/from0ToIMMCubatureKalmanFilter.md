@@ -408,7 +408,7 @@ $$P = L L^T$$
 
 > **Deep Dive: The Mathematical Proof** 
 
-> This chapter focuses on the application of Cholesky decomposition for edge hardware. However, understanding exactly why every symmetric, positive-definite matrix can be uniquely factored this way is a beautiful piece of linear algebra. If you are interested in the rigorous step-by-step mathematical derivation and the proof by induction, please refer to **Appendix: The Square Root of a Matrix and Cholesky Decomposition**.
+> This chapter focuses on the application of Cholesky decomposition for edge hardware. However, understanding exactly why every symmetric, positive-definite matrix can be uniquely factored this way is a beautiful piece of linear algebra. If you are interested in the rigorous step-by-step mathematical derivation and the proof by induction, please refer to **Appendix B: The square root of a matrix and Cholesky decomposition**.
 
 **The Engineering Dilemma**
 
@@ -893,7 +893,7 @@ Furthermore, because we have successfully fused two independent sources of infor
 
 > **Deep Dive: The Birth of the Kalman Gain**
 
-> We just stated that multiplying two Gaussian bell curves miraculously creates a third, perfectly shaped Gaussian curve. But why? And how does that relate to writing C++ tracking code?If you multiply the algebraic equations of these two curves, the resulting formula for the new Mean and Variance is exactly the 1D Kalman Filter Update Equation. For the step-by-step algebraic proof showing exactly how the Kalman Gain ($K$) is derived from this multiplication, refer to **Appendix: The Gaussian Multiplication Proof and the Origins of the Kalman Gain**.
+> We just stated that multiplying two Gaussian bell curves miraculously creates a third, perfectly shaped Gaussian curve. But why? And how does that relate to writing C++ tracking code?If you multiply the algebraic equations of these two curves, the resulting formula for the new Mean and Variance is exactly the 1D Kalman Filter Update Equation. For the step-by-step algebraic proof showing exactly how the Kalman Gain ($K$) is derived from this multiplication, refer to **Appendix D: The Gaussian Multiplication Proof and the Origins of the Kalman Gain**.
 
 **The Engineering Dilemma (The Integration Problem)**
 
@@ -914,7 +914,7 @@ Expectation is a linear operator. This means that if we apply a linear matrix tr
 
 > **Deep Drive: Expectation Algebra and Covariance Propagation** 
 
-> The rigorous mathematical proof showing exactly how covariance propagates through linear matrices—resulting in the famous Kalman Filter equation $P_{k|k-1} = F P_{k-1} F^T + Q$—is fundamental to estimation theory. To keep this chapter focused on implementation, the complete derivation is provided in **Appendix: Expectation Algebra and Covariance Propagation**.
+> The rigorous mathematical proof showing exactly how covariance propagates through linear matrices—resulting in the famous Kalman Filter equation $P_{k|k-1} = F P_{k-1} F^T + Q$—is fundamental to estimation theory. To keep this chapter focused on implementation, the complete derivation is provided in **Appendix C: Expectation Algebra and Covariance Propagation**.
 
 
 
@@ -1344,7 +1344,7 @@ $$\mathcal{O} = \begin{bmatrix} H \\ HF \\ HF^2 \\ \vdots \\ HF^{n-1} \end{bmatr
 
 > **Deep Dive: The Observability Proof**
 
-> If you want to understand exactly why multiplying the measurement matrix by the transition matrix $n-1$ times mathematically guarantees that a target can be tracked, the rigorous linear algebra proof demonstrating how full column rank allows for unique state recovery is provided in **Appendix: The Proof of Linear Observability**.
+> If you want to understand exactly why multiplying the measurement matrix by the transition matrix $n-1$ times mathematically guarantees that a target can be tracked, the rigorous linear algebra proof demonstrating how full column rank allows for unique state recovery is provided in **Appendix E: The Proof of Linear Observability**.
 
 **The Engineering Dilemma: The Monocular Camera**
 
@@ -1471,7 +1471,7 @@ $$p(\mathbf{x}_k \mid \mathbf{Z}_{k-1}) = \int p(\mathbf{x}_k \mid \mathbf{x}_{k
 
 > **Deep Dive: The Chapman-Kolmogorov Derivation**
 
-> We just stated that the Prediction Step relies on the Chapman-Kolmogorov equation to push the target's state forward in time. But where does this continuous integral actually come from? If you want to see how it is mathematically derived from the Law of Total Probability and the Markov Assumption, refer to **Appendix: The Chapman-Kolmogorov Equation**.
+> We just stated that the Prediction Step relies on the Chapman-Kolmogorov equation to push the target's state forward in time. But where does this continuous integral actually come from? If you want to see how it is mathematically derived from the Law of Total Probability and the Markov Assumption, refer to **Appendix G: The Chapman-Kolmogorov Equation**.
 
 
 **Phase 2: The Update Step (Measurement Update)**
@@ -1513,7 +1513,7 @@ When you shove trigonometric functions and perspective divisions inside a Gaussi
 
 > **Deep Dive: The Calculus of Non-Linear Integration**
 
-> It is one thing to say an integral is unsolvable; it is another to see it fail on paper. If you want to look at the exact calculus of why this happens—specifically using the non-linear bearing angle geometry ($\arctan(Y/X)$) of a monocular tracking camera—refer to **Appendix: The Analytical Impossibility of Non-Linear Integration**.
+> It is one thing to say an integral is unsolvable; it is another to see it fail on paper. If you want to look at the exact calculus of why this happens—specifically using the non-linear bearing angle geometry ($\arctan(Y/X)$) of a monocular tracking camera—refer to **Appendix H: The Analytical Impossibility of Non-Linear Integration**.
 
 **The Engineering Dilemma**
 
@@ -1528,7 +1528,7 @@ This exact integration roadblock is the birthplace of the **Cubature Kalman Filt
 
 > **Deep Dive: The Spherical-Radial Derivation**
 
-> We just stated that converting to spherical coordinates miraculously collapses an infinite Gaussian integral down to exactly $2n$ points. But how does the calculus actually prove this? And how do we prove that the radius of the points must be exactly $\sqrt{n}$ to perfectly capture the system's variance? For the rigorous mathematical proof involving Gaussian-Laguerre quadrature and moment-matching, refer to **Appendix: Derivation of the Spherical-Radial Cubature Rule**.
+> We just stated that converting to spherical coordinates miraculously collapses an infinite Gaussian integral down to exactly $2n$ points. But how does the calculus actually prove this? And how do we prove that the radius of the points must be exactly $\sqrt{n}$ to perfectly capture the system's variance? For the rigorous mathematical proof involving Gaussian-Laguerre quadrature and moment-matching, refer to **Appendix A: Derivation of the Spherical-Radial Cubature Rule**.
 
 
 
@@ -1644,7 +1644,7 @@ To minimize the MMSE loss function, we want to add a fraction of this residual t
 
 > **Deep Dive: The Algebraic Derivation of the Kalman Gain**
 
-> In Chapter 4, we showed geometrically how the 1D Kalman Gain is born from multiplying two scalar Gaussian equations. Scaling this proof up to multidimensional matrices requires taking the derivative of the MMSE loss function and setting it to zero. For the rigorous, step-by-step matrix calculus proving the derivation of the multidimensional Kalman Gain, refer to **Appendix: Matrix Derivation of the Kalman Filter**.
+> In Chapter 4, we showed geometrically how the 1D Kalman Gain is born from multiplying two scalar Gaussian equations. Scaling this proof up to multidimensional matrices requires taking the derivative of the MMSE loss function and setting it to zero. For the rigorous, step-by-step matrix calculus proving the derivation of the multidimensional Kalman Gain, refer to **Appendix I: Matrix Derivation of the Kalman Filter**.
 
 ## The Standard Algorithm and C++ Implementation
 
@@ -1770,6 +1770,7 @@ $$\epsilon_k = \mathbf{y}_k^T S_k^{-1} \mathbf{y}_k$$
 Because $\mathbf{y}_k$ is assumed to be a zero-mean Gaussian, normalizing it by its covariance $S_k$ transforms the NIS ($\epsilon_k$) into a **Chi-Square ($\chi^2$) distribution**. The degrees of freedom ($m$) of this distribution equal the number of dimensions in your measurement vector (e.g., $m=2$ for an X/Y radar hit).
 
 If you plot the NIS values over time during a tracking run:
+
 1. **NIS is consistently too high:** The actual errors are much larger than the filter expects. The filter is overconfident in its model. You need to **increase Q**.
    
 2. **NIS is consistently too low:** The actual errors are much smaller than the filter expects. The filter is underconfident. You need to **decrease Q**.
@@ -1788,7 +1789,7 @@ To prevent divergence, advanced tracking systems use **Adaptive Covariance Match
 
 > **Deep Dive: The Mathematics of Adaptive Tuning**
 
-> Calculating new $Q$ and $R$ matrices dynamically requires taking moving-window averages of the innovation sequence and solving backward through the covariance equations. For the rigorous mathematical derivation of the Myers-Tapley Covariance Matching algorithm, refer to **Appendix K: Adaptive Covariance Matching**.
+> Calculating new $Q$ and $R$ matrices dynamically requires taking moving-window averages of the innovation sequence and solving backward through the covariance equations. For the rigorous mathematical derivation of the Myers-Tapley Covariance Matching algorithm, refer to **Appendix J: Adaptive Covariance Matching**.
 
 ## Numerical Stability and the Joseph Form
 
@@ -2486,7 +2487,7 @@ By the fundamental theorem of linear algebra, to find a unique, exact solution f
 
 > **Deep Drive:  What is the Pseudo-Inverse for Rectangular Matrices**
 
-> Note: Because the Observability matrix is a tall, rectangular matrix where the number of rows exceeds the number of columns, it cannot be inverted using a standard matrix inverse. Solving the equation $Z = \mathcal{O}\mathbf{x}_0$ requires computing the Left Pseudo-Inverse. For a complete mathematical breakdown of how to invert non-square matrices in tracking, see **Appendix: What is the Pseudo-Inverse for Rectangular Matrices**.
+> Note: Because the Observability matrix is a tall, rectangular matrix where the number of rows exceeds the number of columns, it cannot be inverted using a standard matrix inverse. Solving the equation $Z = \mathcal{O}\mathbf{x}_0$ requires computing the Left Pseudo-Inverse. For a complete mathematical breakdown of how to invert non-square matrices in tracking, see **Appendix F: What is the Pseudo-Inverse for Rectangular Matrices**.
 
 
 For $\mathcal{O}$ to have a left pseudo-inverse, its columns must be linearly independent. In other words, $\mathcal{O}$ must have full column rank. Because the state vector $\mathbf{x}_0$ has $n$ dimensions, $\mathcal{O}$ must have rank $n$.
