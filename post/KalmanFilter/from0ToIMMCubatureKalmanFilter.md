@@ -2026,10 +2026,161 @@ public:
 
 # The Unscented Kalman Filter (UKF) 
 
-## The Unscented Transform (UT): Choosing sigma points.
+In 1997, Simon Julier and Jeffrey Uhlmann published a paper that fundamentally changed aerospace estimation. They identified the fatal flaw of the Extended Kalman Filter (EKF) and proposed a completely new philosophy for handling non-linear geometry.
 
 
-## Proof of how UT captures mean and covariance better than linearization.
+
+Their philosophy was summarized in a single, powerful sentence: *"It is easier to approximate a probability distribution than it is to approximate an arbitrary non-linear function or transformation."*
+
+Instead of using calculus to flatten a curved physical space into a straight line (the EKF approach), the Unscented Kalman Filter (UKF) leaves the physical curves completely uncorrupted. Instead, it approximates the Gaussian uncertainty bubble itself using a deterministic set of sample points.
+
+
+## The Unscented Transform (UT)
+
+
+The core mechanism of the UKF is the **Unscented Transform (UT)**. Jeffrey Uhlmann initially proposed the unscented transform (UT) as a component of his PhD thesis [7]; however, it is predominantly known from [3]. If we have a state vector $\mathbf{x}$ (with mean $\hat{\mathbf{x}}$ and covariance $P$) that must pass through a highly non-linear function $\mathbf{y} = g(\mathbf{x})$, we execute the UT using four rigorous steps.
+
+**Step 1: Select a set of points from the input distribution.**
+
+We cannot pass a continuous matrix ($P$) through a curve, so we must discretize it. The UT selects exactly $2n + 1$ deterministic vectors called **Sigma Points** ($\mathcal{X}$), where $n$ is the dimension of the state. One point is placed exactly at the mean. The remaining $2n$ points are spread symmetrically outward along the principal axes of the covariance ellipsoid.
+
+To dictate how far these points spread out, we use a composite scaling factor, $\lambda = \alpha^2 (n + \kappa) - n$. (Where $\alpha$ determines the spread, and $\kappa$ is a secondary scaling parameter). 
+
+To find the axes of the ellipse, we take the Cholesky Decomposition of the covariance matrix ($L = \sqrt{P}$). The Sigma Points are generated as:
+$$\mathcal{X}_0 = \hat{\mathbf{x}}$$
+$$\mathcal{X}_i = \hat{\mathbf{x}} + \left( \sqrt{(n + \lambda)P} \right)_i \quad \text{for } i = 1 \dots n$$
+$$\mathcal{X}_{i+n} = \hat{\mathbf{x}} - \left( \sqrt{(n + \lambda)P} \right)_i \quad \text{for } i = 1 \dots n$$
+*(Where subscript $i$ denotes the $i$-th column of the lower-triangular matrix $L$).*
+
+**Step 2: Propagate each selected point through the non-linear function.**
+
+This is the genius of the UKF. We abandon Taylor series derivatives entirely. We simply take our $2n+1$ Sigma Points and push them through the true, uncorrupted non-linear physics or camera projection equations.
+$$\mathcal{Y}_i = g(\mathcal{X}_i) \quad \text{for } i = 0 \dots 2n$$
+This produces a new set of transformed points ($\mathcal{Y}$) that perfectly map to the warped, non-linear output distribution.
+
+**Step 3: Compute sigma point weights.**
+
+Because our points were artificially spread out based on our tuning parameters ($\alpha, \kappa$), they are not equal in value. We must assign specific mathematical weights ($W$) to them to properly reconstruct the statistics later. We calculate separate weights for reconstructing the Mean ($m$) and the Covariance ($c$):
+
+* Weight for the central point (Mean): $W_0^{(m)} = \frac{\lambda}{n + \lambda}$
+* Weight for the central point (Covariance): $W_0^{(c)} = \frac{\lambda}{n + \lambda} + (1 - \alpha^2 + \beta)$
+* Weights for all $2n$ outer points: $W_i^{(m)} = W_i^{(c)} = \frac{1}{2(n + \lambda)}$
+
+*(Note: $\beta$ incorporates prior knowledge of the distribution. For a Gaussian distribution, $\beta = 2$ is optimal).*
+
+**Step 4: Approximate the sample mean and covariance of the output distribution.**
+
+We reconstruct the final, transformed probability distribution by taking a weighted sum of the propagated points. 
+
+* The new Mean is the weighted sum of the points:
+  $$\hat{\mathbf{y}} = \sum_{i=0}^{2n} W_i^{(m)} \mathcal{Y}_i$$
+* The new Covariance is the weighted sum of their squared deviations from the new mean:
+  $$P_y = \sum_{i=0}^{2n} W_i^{(c)} [\mathcal{Y}_i - \hat{\mathbf{y}}][\mathcal{Y}_i - \hat{\mathbf{y}}]^T$$
+
+> **Deep Dive: The Mathematical Proof of UKF Superiority**
+> 
+> Why does this 4-step algorithm work better than the EKF's calculus? The Unscented Transform mathematically guarantees that the calculated mean and covariance perfectly match the true non-linear distribution up to the 3rd order of a Taylor series expansion, whereas the EKF only matches the 1st order. For the formal proof of this precision, refer to **Appendix L: Taylor Series Verification of the Unscented Transform**.
+
+
+
+## The UKF Algorithm
+
+To build a full tracking filter, we simply apply the 4-step UT process to the standard Kalman Filter equations.
+
+**Prediction Step:**
+
+1. Generate Sigma Points ($\mathcal{X}_{k-1}$) from previous state $\hat{\mathbf{x}}_{k-1|k-1}$ and $P_{k-1|k-1}$.
+2. Propagate through the non-linear physics model: $\mathcal{X}_{k|k-1}^{(i)} = f(\mathcal{X}_{k-1}^{(i)})$.
+3. Approximate Predicted Mean: $\hat{\mathbf{x}}_{k|k-1} = \sum_{i=0}^{2n} W_i^{(m)} \mathcal{X}_{k|k-1}^{(i)}$
+4. Approximate Predicted Covariance: $P_{k|k-1} = \sum_{i=0}^{2n} W_i^{(c)} [\mathcal{X}_{k|k-1}^{(i)} - \hat{\mathbf{x}}_{k|k-1}][\dots]^T + Q$
+
+**Update Step:**
+
+5. Generate *new* Sigma Points using the newly predicted $P_{k|k-1}$.
+6. Propagate points through non-linear sensor model: $\mathcal{Z}_k^{(i)} = h(\mathcal{X}_{k|k-1}^{(i)})$.
+7. Approximate Predicted Measurement: $\hat{\mathbf{z}}_k = \sum_{i=0}^{2n} W_i^{(m)} \mathcal{Z}_k^{(i)}$
+8. Calculate Innovation Covariance ($S$) and Cross-Covariance ($P_{xz}$):
+   $$S_k = \sum_{i=0}^{2n} W_i^{(c)} [\mathcal{Z}_k^{(i)} - \hat{\mathbf{z}}_k][\dots]^T + R$$
+   $$P_{xz} = \sum_{i=0}^{2n} W_i^{(c)} [\mathcal{X}_{k|k-1}^{(i)} - \hat{\mathbf{x}}_{k|k-1}][\mathcal{Z}_k^{(i)} - \hat{\mathbf{z}}_k]^T$$
+9. Calculate Kalman Gain & Update:
+   $$K_k = P_{xz} S_k^{-1}$$
+   $$\hat{\mathbf{x}}_{k|k} = \hat{\mathbf{x}}_{k|k-1} + K_k(\mathbf{z}_k - \hat{\mathbf{z}}_k)$$
+   $$P_{k|k} = P_{k|k-1} - K_k S_k K_k^T$$
+
+**The Engineering Dilemma: The Tuning Nightmare**
+
+Despite its mathematical brilliance, the UKF introduces a massive software engineering dilemma for embedded aerospace systems.
+
+Look closely at the formula for the central covariance weight in Step 3: $W_0^{(c)} = \frac{\lambda}{n + \lambda} + (1 - \alpha^2 + \beta)$.
+
+Because $\alpha$ is typically set to a very small number (e.g., $10^{-3}$), the composite parameter $\lambda$ becomes a large **negative** number. This means the central covariance weight $W_0^{(c)}$ frequently becomes negative.
+
+In Chapter 2.2, we established that a covariance matrix must remain strictly Positive Definite (no negative eigenvalues). When you multiply the center point by a negative weight during the Step 4 Covariance reconstruction sum, you are mathematically *subtracting* variance. 
+
+If the tracking environment is highly volatile—such as a target pulling a sudden evasive maneuver combined with a dropped camera frame—the outer sigma points spread wide. The negative central weight pulls the core of the covariance matrix inward. Under these high-stress conditions, standard 32-bit floating-point rounding errors will cause the covariance matrix $P$ to lose positive definiteness. 
+
+During the very next iteration, the Cholesky Decomposition ($\sqrt{P}$) will attempt to take the square root of a negative eigenvalue, resulting in a fatal `NaN` crash. 
+
+The UKF requires rigorous, heuristic parameter tuning ($\alpha, \beta, \kappa$) specifically tailored to your state dimension ($n$) and your expected noise profile to avoid this. If the system scales to higher dimensions, tuning the UKF to remain stable becomes a mathematical nightmare.
+
+**C++ Code: The Unscented Transform**
+
+```cpp
+#include <Eigen/Dense>
+#include <cmath>
+#include <vector>
+
+using namespace Eigen;
+
+class UnscentedTransform {
+public:
+    // Generates UKF Sigma Points and Weights
+    static void computeSigmaPoints(
+        const VectorXd& x, const MatrixXd& P, 
+        double alpha, double beta, double kappa,
+        MatrixXd& sigmaPoints, VectorXd& Wm, VectorXd& Wc) 
+    {
+        int n = x.size();
+        int num_points = 2 * n + 1;
+
+        // Resize output matrices
+        sigmaPoints.resize(n, num_points);
+        Wm.resize(num_points);
+        Wc.resize(num_points);
+
+        // 1. Calculate Scaling Parameter (Lambda)
+        double lambda = (alpha * alpha) * (n + kappa) - n;
+
+        // 2. Calculate Weights
+        Wm(0) = lambda / (n + lambda);
+        // DANGER: Wc(0) can easily become negative depending on alpha!
+        Wc(0) = (lambda / (n + lambda)) + (1.0 - (alpha * alpha) + beta); 
+
+        for (int i = 1; i < num_points; ++i) {
+            Wm(i) = 1.0 / (2.0 * (n + lambda));
+            Wc(i) = Wm(i);
+        }
+
+        // 3. Cholesky Decomposition (Square Root of Covariance)
+        // Note: Production code MUST wrap this in a regularization check 
+        // to handle the non-positive-definite errors caused by negative Wc(0).
+        LLT<MatrixXd> llt(P);
+        MatrixXd L = llt.matrixL();
+        MatrixXd scaledL = std::sqrt(n + lambda) * L;
+
+        // 4. Generate Sigma Points
+        sigmaPoints.col(0) = x; // Center point
+
+        for (int i = 0; i < n; ++i) {
+            sigmaPoints.col(i + 1)     = x + scaledL.col(i);
+            sigmaPoints.col(i + 1 + n) = x - scaledL.col(i);
+        }
+    }
+};
+
+```
+
+
 
 #  The Cubature Kalman Filter (CKF) 
 
@@ -2988,25 +3139,98 @@ $$H_k = \begin{bmatrix}
 \end{bmatrix}$$
 
 
+# K:Taylor Series Verification of the Unscented Transform
+
+In Chapter 10, we stated that the Unscented Transform (UT) captures the true mean and covariance of a non-linear Gaussian distribution better than the Extended Kalman Filter (EKF). This appendix provides the Taylor Series expansion proof demonstrating that the EKF truncates at the 1st order, while the UT successfully reconstructs the true distribution up to the 3rd order.
+
+
+1. **The True Non-Linear Expectation**
+
+Let $\mathbf{x}$ be a random variable with mean $\bar{\mathbf{x}}$ and covariance $P_{xx}$. Let $\delta\mathbf{x} = \mathbf{x} - \bar{\mathbf{x}}$ be a zero-mean Gaussian perturbation with covariance $P_{xx}$.
+
+We pass $\mathbf{x}$ through a non-linear function: $\mathbf{y} = g(\mathbf{x})$.
+
+To find the true expected mean of $\mathbf{y}$, we expand $g(\mathbf{x})$ using a multidimensional Taylor Series around $\bar{\mathbf{x}}$:
+
+
+$$g(\mathbf{x}) = g(\bar{\mathbf{x}} + \delta\mathbf{x}) = g(\bar{\mathbf{x}}) + \nabla g \delta\mathbf{x} + \frac{1}{2} \nabla^2 g \delta\mathbf{x}^2 + \frac{1}{6} \nabla^3 g \delta\mathbf{x}^3 + \dots$$
+
+Taking the expectation $E[\cdot]$ of both sides:
+
+
+$$\bar{\mathbf{y}}_{true} = E[g(\mathbf{x})] = g(\bar{\mathbf{x}}) + E[\nabla g \delta\mathbf{x}] + \frac{1}{2} E[\nabla^2 g \delta\mathbf{x}^2] + \frac{1}{6} E[\nabla^3 g \delta\mathbf{x}^3] + \dots$$
+
+Because $\delta\mathbf{x}$ is a zero-mean, symmetric Gaussian:
+
+All odd-order moments are zero: $E[\delta\mathbf{x}] = 0$, $E[\delta\mathbf{x}^3] = 0$.
+
+The second-order moment evaluates exactly to the covariance $P_{xx}$.
+
+Therefore, the exact, true expected mean is:
+
+
+$$\bar{\mathbf{y}}_{true} = g(\bar{\mathbf{x}}) + \frac{1}{2} \nabla^2 g P_{xx} + \dots (\text{higher even orders})$$
+
+2. **The EKF Approximation**
+
+The EKF approximates the mean by simply passing the prior mean through the function:
+
+
+$$\bar{\mathbf{y}}_{EKF} = g(\bar{\mathbf{x}})$$
+
+The Truncation Error: Comparing the EKF to the true mean, we see the EKF completely ignores the $\frac{1}{2} \nabla^2 g P_{xx}$ term. If the function is highly curved (large 2nd derivative/Hessian) or the uncertainty is large (large $P_{xx}$), the EKF mean is violently wrong.
+
+3. **The Unscented Transform Approximation**
+
+The UT approximates the mean by taking a weighted sum of the deterministically generated Sigma Points ($\mathcal{X}_i$):
+
+
+$$\bar{\mathbf{y}}_{UT} = \sum_{i=0}^{2n} W_i g(\mathcal{X}_i)$$
+
+Let us substitute our Sigma Point generation formula ($\mathcal{X}_i = \bar{\mathbf{x}} \pm \sqrt{(n+\lambda)P_{xx}}$) into the Taylor series expansion. The perturbation for the $i$-th point is $\delta\mathbf{x}_i = \pm \sqrt{(n+\lambda)P_{xx}}$.
+
+Expanding the weighted sum:
+
+
+$$\bar{\mathbf{y}}_{UT} = W_0 g(\bar{\mathbf{x}}) + \sum_{i=1}^{2n} W_i \left( g(\bar{\mathbf{x}}) + \nabla g \delta\mathbf{x}_i + \frac{1}{2} \nabla^2 g \delta\mathbf{x}_i^2 + \dots \right)$$
+
+Because the weights sum to 1 ($\sum W_i = 1$) and the sigma points are perfectly symmetric (for every $+\delta\mathbf{x}_i$ there is a $-\delta\mathbf{x}_i$), the first-order gradient terms sum perfectly to zero.
+
+$$\bar{\mathbf{y}}_{UT} = g(\bar{\mathbf{x}}) + \frac{1}{2} \sum_{i=1}^{2n} W_i \nabla^2 g \delta\mathbf{x}_i^2 + \dots$$
+
+Substitute the exact values of the UT weights ($W_i = \frac{1}{2(n+\lambda)}$) and the squared perturbations ($\delta\mathbf{x}_i^2 = (n+\lambda)P_{xx}$):
+
+$$\bar{\mathbf{y}}_{UT} = g(\bar{\mathbf{x}}) + \frac{1}{2} \sum_{i=1}^{2n} \frac{1}{2(n+\lambda)} \nabla^2 g \left[ (n+\lambda)P_{xx} \right]_i$$
+
+The scaling term $(n+\lambda)$ cancels out perfectly. Summing over the $2n$ symmetrical points perfectly reconstructs the covariance matrix $P_{xx}$:
+
+$$\bar{\mathbf{y}}_{UT} = g(\bar{\mathbf{x}}) + \frac{1}{2} \nabla^2 g P_{xx} + \dots$$
+
+**Conclusion**: By expanding the mathematics, we have proven that the UKF Sigma Point summation perfectly captures the $\frac{1}{2} \nabla^2 g P_{xx}$ term that the EKF ignores. The UT mathematically guarantees accuracy up to the 3rd-order moment of the probability distribution, drastically reducing linearization error during highly dynamic target maneuvers.
+
+
 # Bibliography {-}
 
 ## Articles {-}
 
-[1] Arasaratnam, I., & Haykin, S. (2009).
-*Cubature Kalman Filters*.
-IEEE Transactions on Automatic Control.
+[1] Arasaratnam, I., & Haykin, S. (2009). *Cubature Kalman Filters*. IEEE Transactions on Automatic Control.
 
 [2] **For Adaptive Covariance Matching:** Myers, K.A., Tapley, B.D.: *Adaptive sequential estimation with unknown noise statistics*. IEEE Transactions on Automatic Control **21**(4), 520-523 (1976). (This is the original paper proving the sliding window $Q$ estimation).
 
+
+[3] Jeffrey K. Uhlmann Simon J. Julier. “New extension of the Kalman filter to nonlinear systems”. In: Proc. SPIE 3068, Signal Processing, Sensor Fusion, and Target Recognition VI (July 1997). doi: https://doi.org/10.1117/12.280797 (cited on pages 283, 284, 337).
+
+
 ## Books {-}
 
-[2] Simon, D. (2006).
+[4] Simon, D. (2006).
 *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*.
 John Wiley & Sons.
 
 
-[3] **For NIS and Gating:** Bar-Shalom, Y., Li, X.R., Kirubarajan, T.: *Estimation with Applications to Tracking and Navigation*. (Chapter 5 directly covers Innovation Analysis, Validation Regions, and the Chi-Square statistics).
+[5] **For NIS and Gating:** Bar-Shalom, Y., Li, X.R., Kirubarajan, T.: *Estimation with Applications to Tracking and Navigation*. (Chapter 5 directly covers Innovation Analysis, Validation Regions, and the Chi-Square statistics).
 
 
-[4] **For Numerical Stability (Joseph Form):** Simon, D.: *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*. (Chapter 6 covers roundoff errors, Joseph Form, and U-D factorization).
+[6] **For Numerical Stability (Joseph Form):** Simon, D.: *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*. (Chapter 6 covers roundoff errors, Joseph Form, and U-D factorization).
 
+[7] Uhlmann Jeffrey. Dynamic map building and localization: new theoretical foundations, Thesis (Ph.D.). University of Oxford, 1995 (cited on pages 283, 320).
