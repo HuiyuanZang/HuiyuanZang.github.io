@@ -222,7 +222,7 @@ Because analytical Jacobians are dangerous in high-agility tracking, modern filt
 
 $$I(f) = \int_{\mathbb{R}^n} f(\mathbf{x}) \exp(-\mathbf{x}^T \mathbf{x}) d\mathbf{x}$$
 
-Solving this integral analytically in real-time is impossible. The **Spherical-Radial Cubature** Rule provides a numerical approximation. It decomposes the multi-dimensional integral into a spherical integral (direction) and a radial integral (distance) [1]. By carefully selecting exactly $2n$ deterministic points (where $n$ is the state dimension), we can approximate the true integral with third-degree accuracy [1].
+Solving this integral analytically in real-time is impossible. The **Spherical-Radial Cubature** Rule provides a numerical approximation. It decomposes the multi-dimensional integral into a spherical integral (direction) and a radial integral (distance). By carefully selecting exactly $2n$ deterministic points (where $n$ is the state dimension), we can approximate the true integral with third-degree accuracy.
 
 **Application in Target Tracking (The CKF)**
 
@@ -2184,9 +2184,183 @@ public:
 
 #  The Cubature Kalman Filter (CKF) 
 
+In Chapter 10, we established that approximating a Gaussian probability distribution with deterministic points (the UKF) is vastly superior to approximating a non-linear function with calculus (the EKF). 
+
+However, we also uncovered the UKF's fatal engineering flaw: the arbitrary scaling parameters ($\alpha, \beta, \kappa$). In higher-dimensional state spaces—such as a 9-state Coordinated Turn model running on an embedded Jetson architecture—the UKF's central covariance weight often plunges into negative values. If the target executes a violent maneuver, this negative weight mathematically subtracts variance, causing the covariance matrix to lose positive-definiteness and instantly crashing the Cholesky decomposition loop.
+
+To build a truly resilient tracking architecture, we need a filter that possesses the non-linear accuracy of the UKF, but with mathematically guaranteed numerical stability. 
+
+In 2009, Simon Haykin and Ienkaran Arasaratnam published the **Cubature Kalman Filter (CKF)**. By abandoning arbitrary scaling parameters and returning to the strict roots of multi-dimensional integration, they created the definitive non-linear filter for modern state estimation.
+
 ## The spherical-radial cubature rule.
+
+The fundamental mathematical challenge of non-linear filtering is solving the multi-dimensional Gaussian-weighted integral:
+
+$$I(f) = \int_{\mathbb{R}^n} f(\mathbf{x}) \mathcal{N}(\mathbf{x}; \mathbf{0}, I) d\mathbf{x}$$
+
+Instead of relying on the Unscented Transform's arbitrary scaling parameters, the Cubature Kalman Filter (CKF) solves this integral rigorously using the Spherical-Radial Integration Rule.
+
+As conceptually introduced in Chapter 1.4, converting Cartesian coordinates into spherical coordinates cleanly fractures this seemingly impossible multidimensional integral into two independent, solvable parts: a Spherical integral (which accounts for direction) and a Radial integral (which accounts for distance).
+
+To execute its prediction and update loops, the CKF algorithm utilizes this exact rule. The spherical integral is solved using a fully symmetric spherical cubature rule, while the radial integral is solved using a 1st-degree Gauss-Laguerre quadrature. Because of the spherical symmetry, this 1st-degree radial approximation is mathematically proven to be exact for all 3rd-degree polynomials.
+
+**Deriving the Cubature Points**
+
+To refresh your memory on how this transformation physically generates the evaluation points, we look to the foundational paper by Arasaratnam and Haykin. They derive the Cubature points by splitting the integration problem:
+
+1. **The Spherical Rule**: The authors set up symmetric moment-matching equations for the surface of an $n$-dimensional unit sphere (specifically evaluating $f(\mathbf{y})=1$ and $f(\mathbf{y})=y_1^2$). The only mathematical solution that perfectly balances these equations yields a uniform weight of $A_n/2n$ (where $A_n$ is the surface area) and forces the points to sit exactly on the coordinate axis intersections ($u^2=1$).
+
+2. **The Radial Rule**: Next, they apply a 1st-degree Gauss-Laguerre quadrature to match the variance of the standard Gaussian curve. To perfectly capture the variance across $n$ dimensions, the math forces the radial distance to equal exactly $\sqrt{n}$.
+
+When you scale the directional unit-sphere points by this exact radial distance, you produce the final, deterministic **Cubature Points** used by the filter:
+
+$$\xi_i = \sqrt{n}[1]_i \quad \text{for } i = 1, 2, \dots, 2n$$
+
+(Where $[1]_i$ represents the $i$-th standard basis vector, capturing both the positive and negative axis intersections).
+
+
 ## Mathematical derivation of cubature points.
+
+By applying this 3rd-degree rule, the continuous Bayesian integral completely collapses into a finite, discrete summation over exactly $m = 2n$ points, where $n$ is the dimension of the state vector.
+
+These points (the **Cubature Points**, denoted as $\xi_i$) are mathematically proven to reside exactly on the intersections of the multi-dimensional axes and an uncertainty sphere of radius $\sqrt{n}$:
+
+$$\xi_i = \sqrt{n} [1]_i \quad \text{for } i = 1, 2, \dots, 2n$$
+*(Where $[1]_i$ is the $i$-th standard basis unit vector, covering both the positive and negative axes).*
+
+Because the integral's mass is distributed evenly across the surface of the sphere, the weight ($W_i$) assigned to every single point is identical:
+$$W_i = \frac{1}{2n} \quad \text{for } i = 1, 2, \dots, 2n$$
+
+The final integrated expectation of the non-linear function is simply the equally weighted average of the propagated points:
+$$I(f) \approx \frac{1}{2n} \sum_{i=1}^{2n} f(\xi_i)$$
+
+*(For a refresher on the rigorous mathematical derivation from Gaussian-Laguerre quadrature, refer back to **Appendix A: Derivation of the Spherical-Radial Cubature Rule**).*
+
 ## Comparative analysis: CKF vs. UKF in high-dimensional state spaces.
+
+The philosophical difference between the UKF and the CKF dictates their survival in edge computing. 
+
+* **The UKF** uses $2n + 1$ points. It places a heavily weighted point at the exact center of the distribution, and spreads the remaining points outward based on arbitrary tuning scalars.
+  
+* **The CKF** uses exactly $2n$ points. It leaves the center entirely empty, pushing all evaluation points to the "shell" of the uncertainty sphere. 
+
+By eliminating the central point, the CKF completely eradicates the need for the UKF's negative central scaling weight. In the CKF, every single weight is strictly positive ($\frac{1}{2n}$). Because the summation of positive semi-definite outer products multiplied by strictly positive weights can never yield a negative number, the CKF mathematically guarantees that the Covariance Matrix ($P$) remains positive-definite indefinitely. 
+
+> **Deep Dive: Mathematical Proof of Covariance Stability**
+
+> We just stated that eliminating negative weights guarantees that the covariance matrix will never collapse. But how does linear algebra formally prove this? By applying the definition of positive-definiteness ($\mathbf{v}^T P \mathbf{v} > 0$) to the cubature summation, we can mathematically prove why the CKF survives where the UKF fails. For the rigorous step-by-step linear algebra proof, refer to **Appendix M: Proof of CKF Numerical Stability and Positive Definiteness**.
+
+
+## The Square-Root Cubature Kalman Filter (SCKF)
+
+While the standard CKF proves that the *math* remains positive-definite, the physical hardware of a 32-bit CPU executing the standard update equation ($P_{k|k} = P_{k|k-1} - K S K^T$) will still accumulate microscopic rounding errors over millions of cycles. 
+
+To permanently eradicate numerical instability, Haykin and Arasaratnam introduced the **Square-Root Cubature Kalman Filter (SCKF)**. 
+
+Instead of propagating the full covariance matrix ($P$), the SCKF only propagates its lower-triangular square-root factor ($S$), where $P = S S^T$. By exclusively updating $S$ using **QR Decomposition (Triangularization)** and **Least-Squares**, the SCKF:
+
+1. Completely avoids the highly unstable Cholesky square-root operation during the filtering loop.
+   
+2. Mathematically forces the implicit $P$ matrix to remain perfectly symmetric.
+   
+3. Effectively doubles the computational precision of the filter's arithmetic.
+
+If $A$ is a matrix composed of our weighted, centered cubature points, the QR decomposition factors it into an orthogonal matrix $Q$ and an upper-triangular matrix $R$. We simply take the transpose of $R$ to find our new lower-triangular square-root factor $S$:
+$$S = \text{Tria}(A) = R^T$$
+
+**Engineering Example: Angular Models & SCKF Algorithm**
+
+A common failure point in visual state estimation occurs when processing raw bearing angles from a camera. If a filter linearly averages angular cubature points (e.g., averaging 1° and 359°), it evaluates to 180°, causing massive track divergence.
+
+To solve this, the SCKF must utilize **Directional Statistics**. We convert the angular points into 2D Cartesian vectors, average them, and use the $\text{atan2}$ function to recover the true mean angle.
+
+**C++ Implementation: The SCKF Update Loop**
+
+
+Here is a production-ready Eigen implementation of the SCKF Update Step, explicitly utilizing QR decomposition (`HouseholderQR`) to update the square-root covariance matrix ($S$) directly without ever computing $P$.
+
+```cpp
+#include <Eigen/Dense>
+#include <Eigen/QR>
+#include <cmath>
+
+using namespace Eigen;
+
+class SquareRootCKF {
+private:
+    // Helper function to wrap angles to [-pi, pi]
+    static double wrapAngle(double angle) {
+        return std::fmod(angle + M_PI, 2.0 * M_PI) - M_PI;
+    }
+
+public:
+    // SCKF Update step assuming an Angular Measurement
+    // x: State estimate vector
+    // S: Square-root factor of the covariance matrix (Lower Triangular)
+    static void updateSCKF(
+        VectorXd& x, MatrixXd& S, 
+        double z_meas, double noise_R, 
+        const MatrixXd& X_points) // Cubature points from Predict step
+    {
+        int n = x.size();
+        int m = 2 * n; // Number of points
+        double weight = 1.0 / m;
+
+        VectorXd Z_points(m);
+        double sum_sin = 0.0, sum_cos = 0.0;
+
+        // 1. Propagate points and compute Mean using Directional Statistics
+        for (int i = 0; i < m; ++i) {
+            Z_points(i) = std::atan2(X_points(1, i), X_points(0, i)); // Example: Bearing
+            sum_sin += weight * std::sin(Z_points(i));
+            sum_cos += weight * std::cos(Z_points(i));
+        }
+        double z_pred = std::atan2(sum_sin, sum_cos);
+
+        // 2. Create Centered Matrices
+        MatrixXd Z_centered(1, m);
+        MatrixXd X_centered(n, m);
+        for (int i = 0; i < m; ++i) {
+            Z_centered(0, i) = wrapAngle(Z_points(i) - z_pred) / std::sqrt(m);
+            X_centered.col(i) = (X_points.col(i) - x) / std::sqrt(m);
+        }
+
+        // 3. Estimate Square-Root of Innovation Covariance (S_zz) via QR
+        // Tria( [Z_centered, S_R] )
+        double S_R = std::sqrt(noise_R); // Square root of measurement noise
+        MatrixXd A_zz(1, m + 1);
+        A_zz << Z_centered, S_R;
+        
+        // QR Decomposition -> Tria returns lower triangular (R transpose)
+        HouseholderQR<MatrixXd> qr_zz(A_zz.transpose());
+        MatrixXd S_zz = qr_zz.matrixQR().triangularView<Upper>().transpose();
+        
+        // Since measurement is 1D, S_zz is a 1x1 matrix (a scalar)
+        double S_zz_scalar = S_zz(0,0);
+
+        // 4. Estimate Cross-Covariance
+        MatrixXd P_xz = X_centered * Z_centered.transpose();
+
+        // 5. Calculate Kalman Gain using Least-Squares division
+        // W = (P_xz / S_zz^T) / S_zz
+        VectorXd W = (P_xz / S_zz_scalar) / S_zz_scalar;
+
+        // 6. Update State
+        double y_innov = wrapAngle(z_meas - z_pred);
+        x = x + (W * y_innov);
+
+        // 7. Update Square-Root Covariance (S) via QR Decomposition
+        // Tria( [X_centered - W * Z_centered, W * S_R] )
+        MatrixXd A_upd(n, m + 1);
+        A_upd << (X_centered - W * Z_centered), (W * S_R);
+        
+        HouseholderQR<MatrixXd> qr_upd(A_upd.transpose());
+        MatrixXd R_upd = qr_upd.matrixQR().topRows(n).triangularView<Upper>();
+        S = R_upd.transpose(); // New Lower-Triangular Square-Root Covariance!
+    }
+};
+```
+
 
 
 # Advanced Frontiers 
@@ -3139,7 +3313,7 @@ $$H_k = \begin{bmatrix}
 \end{bmatrix}$$
 
 
-# K:Taylor Series Verification of the Unscented Transform
+# L:Taylor Series Verification of the Unscented Transform {-}
 
 In Chapter 10, we stated that the Unscented Transform (UT) captures the true mean and covariance of a non-linear Gaussian distribution better than the Extended Kalman Filter (EKF). This appendix provides the Taylor Series expansion proof demonstrating that the EKF truncates at the 1st order, while the UT successfully reconstructs the true distribution up to the 3rd order.
 
@@ -3207,6 +3381,67 @@ The scaling term $(n+\lambda)$ cancels out perfectly. Summing over the $2n$ symm
 $$\bar{\mathbf{y}}_{UT} = g(\bar{\mathbf{x}}) + \frac{1}{2} \nabla^2 g P_{xx} + \dots$$
 
 **Conclusion**: By expanding the mathematics, we have proven that the UKF Sigma Point summation perfectly captures the $\frac{1}{2} \nabla^2 g P_{xx}$ term that the EKF ignores. The UT mathematically guarantees accuracy up to the 3rd-order moment of the probability distribution, drastically reducing linearization error during highly dynamic target maneuvers.
+
+
+
+# M:Proof of CKF Numerical Stability and Positive Definiteness {-}
+
+In Chapter 11.3, we asserted that the Cubature Kalman Filter (CKF) is mathematically immune to the covariance collapse that plagues the Unscented Kalman Filter (UKF). This appendix provides the linear algebra proof demonstrating why the CKF guarantees a positive-definite covariance matrix.
+
+1. **Definition of Positive Definiteness**
+
+A covariance matrix $P$ is positive-definite ($P \succ 0$) if and only if, for any non-zero vector $\mathbf{v}$:
+
+
+$$\mathbf{v}^T P \mathbf{v} > 0$$
+
+During the Prediction step, the updated covariance matrix $P_{k|k-1}$ is calculated as:
+
+
+$$P_{k|k-1} = \sum_{i=1}^{2n} W_i (\mathcal{X}_{i} - \hat{\mathbf{x}})(\mathcal{X}_{i} - \hat{\mathbf{x}})^T + Q$$
+
+Let $\mathbf{e}_i = \mathcal{X}_{i} - \hat{\mathbf{x}}$ represent the deviation of the $i$-th propagated cubature point from the mean. The equation simplifies to:
+
+
+$$P_{k|k-1} = \sum_{i=1}^{2n} W_i (\mathbf{e}_i \mathbf{e}_i^T) + Q$$
+
+2. **Evaluating the Quadratic Form**
+
+To test for positive definiteness, we pre- and post-multiply the equation by our arbitrary non-zero vector $\mathbf{v}$:
+
+
+$$\mathbf{v}^T P_{k|k-1} \mathbf{v} = \mathbf{v}^T \left( \sum_{i=1}^{2n} W_i \mathbf{e}_i \mathbf{e}_i^T \right) \mathbf{v} + \mathbf{v}^T Q \mathbf{v}$$
+
+Because scalar matrix multiplication is commutative, we can pull $\mathbf{v}$ inside the summation:
+
+
+$$\mathbf{v}^T P_{k|k-1} \mathbf{v} = \sum_{i=1}^{2n} W_i (\mathbf{v}^T \mathbf{e}_i)(\mathbf{e}_i^T \mathbf{v}) + \mathbf{v}^T Q \mathbf{v}$$
+
+Notice that $(\mathbf{v}^T \mathbf{e}_i)$ is a scalar (the dot product of two vectors). Furthermore, $(\mathbf{e}_i^T \mathbf{v})$ is the exact same scalar. Let $c_i = \mathbf{v}^T \mathbf{e}_i$. The equation becomes:
+
+
+$$\mathbf{v}^T P_{k|k-1} \mathbf{v} = \sum_{i=1}^{2n} W_i c_i^2 + \mathbf{v}^T Q \mathbf{v}$$
+
+3. **The Weight Constraint**
+
+Because $c_i$ is a real number, its square is always positive or zero ($c_i^2 \ge 0$).
+
+This is the exact point of failure for the UKF. In the UKF, the central weight $W_0$ can be negative. If $W_0 c_0^2$ yields a large negative number, the entire sum can drop below zero, destroying positive definiteness.
+
+In the CKF, the spherical-radial cubature rule mandates that all weights are identical and strictly positive: $W_i = \frac{1}{2n} > 0$.
+Therefore, multiplying the strictly positive weight by the positive squared scalar guarantees that every single term in the summation is $\ge 0$:
+
+
+$$\sum_{i=1}^{2n} \left(\frac{1}{2n}\right) c_i^2 \ge 0$$
+
+Finally, we consider the Process Noise matrix, $Q$. By definition, process noise represents physical environmental uncertainty and is always designed to be strictly positive-definite ($\mathbf{v}^T Q \mathbf{v} > 0$).
+
+Adding a strictly positive number ($\mathbf{v}^T Q \mathbf{v}$) to a positive semi-definite sum yields a strictly positive result:
+
+
+$$\mathbf{v}^T P_{k|k-1} \mathbf{v} > 0$$
+
+
 
 
 # Bibliography {-}
