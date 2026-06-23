@@ -2365,8 +2365,141 @@ public:
 
 # Advanced Frontiers 
 
+Before we conclude our exploration of non-linear filtering, we must address the absolute theoretical limit of state estimation.
+
+The Extended, Unscented, and Cubature Kalman Filters all share one fundamental constraint: they are trapped within the Gaussian domain. They mathematically force the tracking uncertainty to remain a symmetric ellipsoid (a mean and a covariance).
+
+But what if a target's probability distribution is completely arbitrary? What if a UAV flies behind a mountain, and the probability of it emerging on the left side is 30%, while the probability of it emerging on the right side is 70%? A Gaussian filter will average this bimodal distribution and confidently predict the target is inside the solid rock of the mountain.
+
+To track non-Gaussian, multi-modal distributions, we must abandon matrices entirely and step into the frontier of Monte Carlo estimation.
+
+## The Particle Filter (PF)
+
+The Particle Filter (PF) abandons the concept of a covariance matrix. Instead, it approximates an arbitrary probability density function (PDF) by flooding the state space with thousands of discrete, randomly generated samples called **Particles**.
+
+Each particle $i$ consists of a state vector $x^{(i)}$ (a hypothesis of where the target is) and a corresponding weight $w^{(i)}$ (the probability that this specific hypothesis is correct). The total probability distribution is simply the weighted sum of these thousands of points.
+
+**The PF Algorithm (Sequential Importance Resampling)**
+
+1.  **Predict**: When the time step advances, every single particle is pushed through the non-linear kinematic equations ($x_k = f(x_{k-1})$). Crucially, random process noise is uniquely injected into every particle, causing the cloud of particles to spread out like a swarm of bees.
+
+2.  **Update (Weighting)**: When a camera measurement $z_k$ arrives, the filter calculates the likelihood of that measurement for every single particle. Particles that land near the camera's bounding box are assigned massive weights; particles far away are assigned near-zero weights.
+
+3.  **Resampling**: Because particles far from the target become mathematically useless, the filter routinely executes a "Darwinian" resampling step. It deletes the low-weight particles and clones the high-weight particles, focusing all computational power on the most likely region of space.
+
+
+**The Engineering Dilemma: The Curse of Dimensionality**
+
+If the Particle Filter can track any arbitrary distribution perfectly, why do we use the Cubature Kalman Filter for aerospace tracking?
+
+The answer is CPU meltdown.
+
+The number of particles required to successfully map a probability space grows exponentially with the dimension of the state vector. For a simple 2D tracking problem (X, Y), 500 particles might suffice. But for a 9-state Coordinated Turn model, you might need 50,000 to 100,000 particles to prevent the swarm from missing the target entirely.
+
+Pushing 100,000 particles through complex camera projection geometry, calculating 100,000 likelihood functions, and executing a massive array-sorting algorithm for resampling at 60 Frames Per Second (16ms per frame) is physically impossible on Size, Weight, and Power (SWaP) constrained embedded architectures like an Nvidia Jetson Nano.
+
+> **Deep Dive: The Mathematics of Particle Degeneracy**
+
+> If you fail to run the Resampling step, the Particle Filter will suffer from "Weight Degeneracy," where all but one particle drops to a mathematical weight of exactly zero, crashing the estimator. For the mathematical proof of weight degeneracy and the formula for Effective Sample Size ($N_{eff}$), refer to **Appendix N: Particle Filter Degeneracy and Effective Sample Size**.
+
+
+**C++ Implementation: Systematic Resampling**
+
+For engineers who do deploy Particle Filters on high-compute ground stations, the bottleneck is often the Resampling step. Here is a highly optimized $O(N)$ Systematic Resampling algorithm that clones high-weight particles without requiring expensive array sorting.
+
+
+```cpp
+#include <vector>
+#include <random>
+
+struct Particle {
+    Eigen::VectorXd state;
+    double weight;
+};
+
+void systematicResampling(std::vector<Particle>& particles) {
+    int N = particles.size();
+    std::vector<Particle> new_particles;
+    new_particles.reserve(N);
+
+    // Calculate cumulative sum of weights
+    std::vector<double> cdf(N);
+    cdf[0] = particles[0].weight;
+    for (int i = 1; i < N; ++i) {
+        cdf[i] = cdf[i - 1] + particles[i].weight;
+    }
+
+    // Generate a random starting point between 0 and 1/N
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 1.0 / N);
+    double u = dis(gen);
+
+    int i = 0;
+    // Step through the CDF like a roulette wheel with N equally spaced spokes
+    for (int j = 0; j < N; ++j) {
+        double u_j = u + (double)j / N;
+        while (u_j > cdf[i] && i < N - 1) {
+            i++;
+        }
+        // Clone the particle that the spoke landed on, resetting its weight
+        Particle p = particles[i];
+        p.weight = 1.0 / N;
+        new_particles.push_back(p);
+    }
+    particles = new_particles;
+}
+
+```
+
+## The Ensemble Kalman Filter (EnKF)
+
+
+If your state vector is exceptionally massive—such as a 10,000-state vector modeling ocean currents or a swarm of 500 UAVs—even the Cubature Kalman Filter will fail. Maintaining a $10,000 \times 10,000$ covariance matrix $P$ requires gigabytes of RAM and is impossible to invert.
+
+The Ensemble Kalman Filter (EnKF) is a hybrid approach. It uses a small swarm of particles (an "ensemble" of maybe 100 points) to represent the target. However, instead of using arbitrary particle weights, it assumes the swarm follows a Gaussian distribution. It calculates the empirical covariance of those 100 points and feeds that approximation into the standard Kalman Filter update equations.
+
+While heavily utilized in meteorology and fluid dynamics, the EnKF is generally too imprecise for the strict, millimeter-accurate requirements of single-target optical weapons tracking, cementing the CKF as our tool of choice.
+
+
 # The Engineer's Matrix 
 
+
+We have now reached the end of Part IV. We have journeyed from the perfectly linear Standard Kalman Filter (KF), through the calculus of the Extended Kalman Filter (EKF), into the deterministic points of the Unscented (UKF) and Cubature Kalman Filters (CKF), and finally looked at the Monte Carlo brute force of the Particle Filter (PF).
+
+No single filter is the "best" for every application. Engineering is the art of compromise. The table below serves as your master decision matrix, comparing the computational costs, accuracy, and tuning nightmares of every filter.
+
+**The Non-Linear Filter Comparison Matrix**
+
+
+
+
+| Filter  | Core Mechanism | Non-Linear Accuracy | Point Evaluations per Step | Tuning Complexity | Stability Risk |
+|---------|----------------|---------------------|----------------------------|-------------------|----------------|
+| KF  | Linear Matrix Algebra | Fails (Requires Linearity) | 1 (Just the Mean) | Low (Just Q and R) | Low |
+| EKF  | Calculus (Jacobians) | 1st Order Taylor Series | 1 (Just the Mean) | Medium | High (Truncation Error) |
+| UKF  | Unscented Transform | 3rd Order Taylor Series | $2n + 1$ Sigma Points | Extreme ($\alpha, \beta, \kappa$) | High (Negative Weights) |
+| CKF  | Spherical-Radial Cubature | 3rd Order Taylor Series | $2n$ Cubature Points | Low (Just Q and R) | Low (Always Positive Definite) |
+| PF  | Monte Carlo Integration | Exact (Non-Gaussian) | $1,000$ to $100,000+$ | High (Resampling Logic) | High (CPU/Memory Overload) |
+
+**The Aerospace Decision Guide**
+
+When architecting a new tracking system, ask yourself the following questions in order:
+
+1. **Is your physical system entirely linear?**(e.g., Tracking a slow-moving ground vehicle on a 2D map using Cartesian radar coordinates).
+
+- **Decision**: Use the **Standard KF**. Do not waste CPU cycles generating cubature points if the matrix math is already exact.
+
+2. **Are you tracking a highly agile target with a monocular camera on SWaP-constrained hardware?**(e.g., An interceptor drone tracking a maneuvering fixed-wing aircraft using nested Euler angles).
+   
+- **Decision**: Use the **Square-Root Cubature Kalman Filter (SCKF)**. The non-linearities will destroy the EKF, the UKF will require months of frustrating manual parameter tuning, and the PF will melt your embedded CPU. The SCKF offers mathematical stability with zero tuning parameters.
+
+3. **Are you tracking a target where the probability is heavily multi-modal (non-Gaussian)?**
+(e.g., Terrain-referenced navigation, or tracking a target moving through a dense urban city block where it can turn down 4 distinct streets).
+
+- **Decision**: Use the Particle Filter (PF). A Gaussian filter will average the four streets together and confidently predict the target is inside a building. You must use a PF and accept the heavy computational cost.
+
+With the Cubature Kalman Filter firmly established as our primary non-linear engine, we are now ready to tackle the final challenge of target tracking. We have a mathematically stable filter, but what happens when the target fundamentally changes its behavior mid-flight? In Part V, we will wrap our CKF inside the **Interacting Multiple Model (IMM)** architecture to track targets that fight back.
 
 # Part V: Maneuvering Targets and Multiple Models {-}
 
@@ -3441,7 +3574,83 @@ Adding a strictly positive number ($\mathbf{v}^T Q \mathbf{v}$) to a positive se
 
 $$\mathbf{v}^T P_{k|k-1} \mathbf{v} > 0$$
 
+# N:Particle Filter Degeneracy and Effective Sample Size {-}
 
+In Chapter 12.1, we introduced the Particle Filter (PF) and stated that without a Resampling step, the filter will inevitably collapse due to "Weight Degeneracy." This appendix provides the mathematical proof of why degeneracy occurs and derives the Effective Sample Size ($N_{eff}$) equation used by engineers to trigger the resampling algorithm.
+
+
+1. **The Mathematics of Weight Degeneracy**
+
+In a Particle Filter, the posterior probability density is approximated by a set of $N$ particles $\{x_k^{(i)}\}_{i=1}^N$ and their associated normalized weights $\{w_k^{(i)}\}_{i=1}^N$.
+
+Using Sequential Importance Sampling (SIS), the unnormalized weight of particle $i$ at time step $k$ is updated recursively using Bayes' theorem:
+
+
+$$w_k^{(i)} \propto w_{k-1}^{(i)} \frac{p(z_k | x_k^{(i)}) p(x_k^{(i)} | x_{k-1}^{(i)})}{q(x_k^{(i)} | x_{k-1}^{(i)}, z_k)}$$
+
+Where $p(z_k | x_k^{(i)})$ is the observation likelihood, and $q(\cdot)$ is the proposal distribution (often simply chosen as the transition prior $p(x_k | x_{k-1})$).
+
+The variance of these weights over time is proven to strictly increase. Mathematically, it can be shown that the variance of the true importance weights conditional on the measurement sequence always increases stochastically:
+
+
+$$Var(w_k) \ge Var(w_{k-1})$$
+
+**The Engineering Consequence**: Because the variance of the weights strictly increases, after a few recursive iterations, the probability mass will become concentrated on a single particle.
+For $N$ particles, $N-1$ particles will have a weight of $w^{(i)} \approx 0$, and exactly one particle will have a weight of $w^{(i)} \approx 1$.
+
+At this point, the filter is wasting 99.9% of its CPU power simulating particles that contribute absolutely nothing to the state estimate. The filter has degenerated.
+
+
+2. **Measuring Degeneracy: Effective Sample Size**
+
+To prevent the CPU from wasting cycles, the filter must monitor the health of its particle swarm. We cannot measure the true variance of the theoretical weights, so we estimate the **Effective Sample Size**, denoted as $N_{eff}$.
+
+$N_{eff}$ intuitively represents the number of particles that are actually contributing meaningfully to the probability distribution.
+
+The true effective sample size is defined as:
+
+
+$$N_{eff} = \frac{N}{1 + Var(w_k^{*})}$$
+
+
+(Where $w_k^{}$ are the true, unnormalized weights).*
+
+Because the true weights are unknown, we approximate $N_{eff}$ using the normalized weights we calculate in software ($\sum w_k^{(i)} = 1$). The approximation is derived as:
+
+
+$$\widehat{N}_{eff} = \frac{1}{\sum_{i=1}^N (w_k^{(i)})^2}$$
+
+
+3. **Analyzing the $N_{eff}$ Equation**
+
+We can mathematically prove why this specific equation perfectly captures the health of the filter by looking at the two extremes:
+
+**Case A: Perfect Health (All particles are equally likely)**
+If the filter is perfectly healthy, every particle has the exact same weight: $w^{(i)} = 1/N$.
+
+
+
+$$\widehat{N}_{eff} = \frac{1}{\sum_{i=1}^N (1/N)^2} = \frac{1}{N \cdot (1/N^2)} = \frac{1}{1/N} = N$$
+
+
+The effective sample size equals the total number of particles.
+
+**Case B: Total Degeneracy (One particle holds all the weight)**
+If the filter has degenerated, one particle has a weight of $1.0$, and the remaining $N-1$ particles have a weight of $0.0$.
+
+
+
+$$\widehat{N}_{eff} = \frac{1}{1^2 + 0^2 + \dots + 0^2} = \frac{1}{1} = 1$$
+
+
+The effective sample size equals $1$, regardless of how many thousands of particles are currently sitting in memory.
+
+
+4. **The Resampling Trigger**
+
+In production $C++$ code, evaluating the Effective Sample Size is a one-line summation loop. Engineers define a strict threshold—typically $N_{eff} < N/2$.
+
+Once $\widehat{N}_{eff}$ drops below 50% of the total particle count, the software halts the tracking loop and triggers the Systematic Resampling algorithm (provided in Section 12.1), mathematically reviving the dead particles and preventing filter collapse.
 
 
 # Bibliography {-}
@@ -3455,17 +3664,32 @@ $$\mathbf{v}^T P_{k|k-1} \mathbf{v} > 0$$
 
 [3] Jeffrey K. Uhlmann Simon J. Julier. “New extension of the Kalman filter to nonlinear systems”. In: Proc. SPIE 3068, Signal Processing, Sensor Fusion, and Target Recognition VI (July 1997). doi: https://doi.org/10.1117/12.280797 (cited on pages 283, 284, 337).
 
+[4] Gordon, N. J., Salmond, D. J., & Smith, A. F. M. (1993). Novel approach to nonlinear/non-Gaussian Bayesian state estimation. IEE Proceedings F (Radar and Signal Processing), 140(2), 107-113. (Note: This is the seminal paper that introduced the Sampling Importance Resampling (SIR) algorithm, often considered the birth of the modern Particle Filter).
+
+[5] Arulampalam, M. S., Maskell, S., Gordon, N., & Clapp, T. (2002). A tutorial on particle filters for online nonlinear/non-Gaussian Bayesian tracking. IEEE Transactions on Signal Processing, 50(2), 174-188.
+(Note: Highly recommended for the bibliography; it provides an excellent breakdown of weight degeneracy and the Effective Sample Size equation we detailed in Appendix N)
+
+[6] Evensen, G. (1994). Sequential data assimilation with a nonlinear quasi-geostrophic model using Monte Carlo methods to forecast error statistics. Journal of Geophysical Research: Oceans, 99(C5), 10143-10162.
+(Note: The seminal paper where Geir Evensen originally invented and introduced the Ensemble Kalman Filter for high-dimensional oceanographic tracking).
+
 
 ## Books {-}
 
-[4] Simon, D. (2006).
+[7] Simon, D. (2006).
 *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*.
 John Wiley & Sons.
 
 
-[5] **For NIS and Gating:** Bar-Shalom, Y., Li, X.R., Kirubarajan, T.: *Estimation with Applications to Tracking and Navigation*. (Chapter 5 directly covers Innovation Analysis, Validation Regions, and the Chi-Square statistics).
+[8] **For NIS and Gating:** Bar-Shalom, Y., Li, X.R., Kirubarajan, T.: *Estimation with Applications to Tracking and Navigation*. (Chapter 5 directly covers Innovation Analysis, Validation Regions, and the Chi-Square statistics).
 
 
-[6] **For Numerical Stability (Joseph Form):** Simon, D.: *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*. (Chapter 6 covers roundoff errors, Joseph Form, and U-D factorization).
+[9] **For Numerical Stability (Joseph Form):** Simon, D.: *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*. (Chapter 6 covers roundoff errors, Joseph Form, and U-D factorization).
 
-[7] Uhlmann Jeffrey. Dynamic map building and localization: new theoretical foundations, Thesis (Ph.D.). University of Oxford, 1995 (cited on pages 283, 320).
+[10] Uhlmann Jeffrey. Dynamic map building and localization: new theoretical foundations, Thesis (Ph.D.). University of Oxford, 1995 (cited on pages 283, 320).
+
+
+[11] Doucet, A., de Freitas, N., & Gordon, N. (2001). Sequential Monte Carlo Methods in Practice. Springer.
+(Note: The definitive textbook on particle filtering and Monte Carlo estimation).
+
+[12] Evensen, G. (2009). Data Assimilation: The Ensemble Kalman Filter (2nd ed.). Springer.
+(Note: The primary textbook detailing the EnKF theory, specifically tailored for massively high-dimensional state spaces).
