@@ -2505,11 +2505,214 @@ With the Cubature Kalman Filter firmly established as our primary non-linear eng
 
 #  Interacting Multiple Model (IMM) Estimation
 
-## The challenge of maneuvering target tracking.
+In the preceding chapters of this text, our primary adversary was non-linear geometry. Whether deriving Jacobians for the Extended Kalman Filter or distributing cubature points across a sphere for the Cubature Kalman Filter, we operated under a single, fragile assumption: we know the physical kinematic equations governing the target.
 
-## Markov chain mixing of model probabilities.
+In optical and radar weapons tracking, this assumption collapses the moment a target detects an incoming threat. A commercial drone loitering in a stable hover (Constant Velocity) will instantly pull a violent, high-G banking evasive maneuver (Coordinated Turn or Constant Acceleration).
 
-## The IMM architecture: Interaction, Filtering, Model Probability Update, and Combination.
+If an engineer deploys a single dynamic filter, they face an impossible tuning dilemma. If the Process Noise ($Q$) is tuned low, the filter outputs a beautifully smooth track during hovering, but completely loses the target when it maneuvers. If $Q$ is artificially inflated to catch the turn, the filter tracks the maneuver but jitters violently during stable flight.
+
+To track targets that fundamentally change their behavior mid-flight, we must move beyond single-model estimation. We must wrap our non-linear filters inside a hybrid dynamic architecture known as the Interacting Multiple Model (IMM) estimator.
+
+## The Maneuvering Target Dilemma & Markov Chains
+
+When tracking an agile adversary, we face two distinct types of uncertainty:
+
+1. **Continuous Kinematic Uncertainty**: The standard Gaussian noise corrupting position, velocity, and sensor hits (handled by Kalman filters).
+
+2. **Discrete Structural Uncertainty**: The abrupt, non-continuous switches between completely different flight modes.
+
+To capture structural uncertainty, we define a discrete set of $r$ kinematic models (e.g., Model 1 = Constant Velocity, Model 2 = Coordinated Turn). We mathematically assume that the target switches between these models according to a **Discrete-Time Markov Chain**.
+
+The probability of the target transitioning from Model $i$ at time $k-1$ to Model $j$ at time $k$ is governed by a known, **static Transition Probability Matrix**, denoted as $\Pi$:
+
+
+
+
+$$\Pi = \begin{bmatrix} \pi_{11} & \pi_{12} & \dots & \pi_{1r} \\ \pi_{21} & \pi_{22} & \dots & \pi_{2r} \\ \vdots & \vdots & \ddots & \vdots \\ \pi_{r1} & \pi_{r2} & \dots & \pi_{rr} \end{bmatrix}$$
+
+Where the transition probabilities satisfy $\sum_{j=1}^r \pi_{ij} = 1$. If a drone is loitering smoothly, $\pi_{11}$ might be $0.95$, reflecting a 95% chance it continues loitering, and a 5% chance ($\pi_{12} = 0.05$) it snaps into an evasive banking turn.
+
+
+
+## The Four-Step IMM Architecture
+
+The brilliant insight of the IMM estimator (originally established by Blom and Bar-Shalom) is that it does not force the computer to hard-switch between models. Instead, it runs all $r$ filters in parallel and executes a highly intricate, 4-step probabilistic mixing cycle during every single camera frame.
+
+Let $\mu_i(k-1)$ represent the established probability that Model $i$ was active during the previous frame.
+
+- **Step 1: The Interaction (Mixing) Step**
+
+Before executing the standard filter predictions, we calculate the normalization constants ($c_j$) and the mixing probabilities ($\mu_{i|j}$), which represent the probability that the target switched from Model $i$ to Model $j$:
+
+
+$$c_j = \sum_{i=1}^r \pi_{ij} \mu_i(k-1)$$
+
+$$\mu_{i|j}(k-1|k-1) = \frac{\pi_{ij} \mu_i(k-1)}{c_j}$$
+
+We now calculate the mixed initial state vector ($\bar{\mathbf{x}}_j$) and mixed initial covariance matrix ($\bar{P}_j$) specifically tailored for every filter $j$:
+
+
+$$\bar{\mathbf{x}}_j(k-1|k-1) = \sum_{i=1}^r \mu_{i|j}(k-1|k-1) \hat{\mathbf{x}}_i(k-1|k-1)$$
+
+$$\bar{P}_j(k-1|k-1) = \sum_{i=1}^r \mu_{i|j}(k-1|k-1) \left[ P_i(k-1|k-1) + \mathbf{d}_{ij} \mathbf{d}_{ij}^T \right]$$
+
+
+(Where the spread-of-the-means vector is defined as $\mathbf{d}_{ij} = \hat{\mathbf{x}}_i(k-1|k-1) - \bar{\mathbf{x}}_j(k-1|k-1)$).
+
+- **Step 2: Mode-Matched Filtering**
+  
+We now take our mixed inputs ($\bar{\mathbf{x}}_j, \bar{P}_j$) and feed them individually into our $r$ parallel tracking filters (which can be linear KFs, EKFs, or Cubature Kalman Filters).
+
+Each filter executes its own standard prediction and measurement update step, yielding a newly updated state $\hat{\mathbf{x}}_j(k|k)$, covariance $P_j(k|k)$, and an innovation covariance $S_j(k)$. Crucially, each filter also evaluates the raw Gaussian Likelihood ($\Lambda_j$) of the incoming camera measurement $\mathbf{z}_k$:
+
+
+$$\Lambda_j(k) = \frac{1}{\sqrt{|2\pi S_j(k)|}} \exp\left( -\frac{1}{2} \mathbf{y}_j^T(k) S_j^{-1}(k) \mathbf{y}_j(k) \right)$$
+
+
+(Where $\mathbf{y}_j(k)$ is the residual innovation vector of filter $j$).
+
+- **Step 3: Mode Probability Update**
+  
+We use these raw measurement likelihoods to update the overall operational probability ($\mu_j$) of each flight mode using Bayes' rule:
+
+
+$$\mu_j(k) = \frac{\Lambda_j(k) c_j}{c}$$
+
+
+Where the total system scale factor is $c = \sum_{j=1}^r \Lambda_j(k) c_j$. If the target suddenly banks, the Coordinated Turn filter's predicted measurement will land squarely on the camera hit, generating a massive likelihood $\Lambda_{CT}$, instantly spiking the mode probability $\mu_{CT} \to 1.0$.
+
+- **Step 4: State Output Combination**
+
+For final telemetry output and visual rendering, we collapse the $r$ separate Gaussian branches into a single global state estimate ($\hat{\mathbf{x}}$) and global covariance ($P$) using moment matching:
+
+
+$$\hat{\mathbf{x}}(k|k) = \sum_{j=1}^r \mu_j(k) \hat{\mathbf{x}}_j(k|k)$$
+
+$$P(k|k) = \sum_{j=1}^r \mu_j(k) \left[ P_j(k|k) + \left( \hat{\mathbf{x}}_j(k|k) - \hat{\mathbf{x}}(k|k) \right)\left( \dots \right)^T \right]$$
+
+
+> **Deep Dive: The Linear Algebra of Gaussian Collapse**
+
+> Why must we execute Step 1 and Step 4 during every iteration? If we simply ran $r$ independent filters across $k$ time steps without mixing, a target switching between $r$ models would generate a massive tree of $r^k$ possible hypothesis branches. At $60\text{Hz}$ over a 10-second engagement, the computer would have to track $2^{600}$ simultaneous matrices—crashing any computer on Earth. The IMM achieves optimal $O(r)$ performance using a Generalized Pseudo-Bayesian (GPB2) moment-matching collapse. For the rigorous mathematical proof of this variance-preserving collapse, refer to **Appendix O: Moment Matching Reduction of Gaussian Mixtures**.
+
+**Engineering Example: Loitering vs. Evasive UAV**
+
+
+Consider an optical tracking payload mounted on an interceptor vehicle. We must track an enemy UAV that alternates between stable hovering and rapid evasive turns. We define a 2-model IMM:
+
+1. **Model 1 (CV)**: Constant Velocity in 2D Cartesian space $[x, y, v_x, v_y]^T$. Tuned with tiny process noise ($q_{CV} = 0.01\text{m}^2/\text{s}^3$).
+
+2. **Model 2 (CT)**: Coordinated Turn with unknown turn rate $[x, y, v_x, v_y, \Omega]^T$. Tuned with high process noise ($q_{CT} = 2.5\text{m}^2/\text{s}^3$) to absorb violent angular accelerations.
+
+We program the Markov transition matrix to heavily favor remaining in the current operational state:
+
+
+$$\Pi = \begin{bmatrix} 0.95 & 0.05 \\ 0.10 & 0.90 \end{bmatrix}$$
+
+
+(Note: $\pi_{21} = 0.10$ indicates that once the target enters a turn, there is a 10% chance per frame it snaps back out into straight-line flight).
+
+
+**C++ Code: The IMM Mixing Engine**
+
+Here is a highly modular, production-ready Eigen implementation of the core IMM mixing, probability updating, and collapsing engine. This engine acts as the master controller that can wrap around any linear or non-linear filter class.
+
+```cpp
+#include <Eigen/Dense>
+#include <vector>
+#include <cmath>
+
+using namespace Eigen;
+
+struct SubFilterState {
+    VectorXd x;         // State vector
+    MatrixXd P;         // Covariance matrix
+    double likelihood;  // Measurement likelihood from filter update
+};
+
+class InteractingMultipleModel {
+private:
+    int num_models;
+    MatrixXd Pi;        // Markov Transition Probability Matrix (r x r)
+    VectorXd mu;        // Current Mode Probabilities (r x 1)
+    VectorXd c;         // Normalization constants (r x 1)
+    MatrixXd mu_mix;    // Mixing Probabilities matrix (r x r)
+
+public:
+    InteractingMultipleModel(const MatrixXd& transition_matrix, const VectorXd& initial_probs) {
+        Pi = transition_matrix;
+        mu = initial_probs;
+        num_models = mu.size();
+        c.resize(num_models);
+        mu_mix.resize(num_models, num_models);
+    }
+
+    // STEP 1: Execute IMM Mixing before passing data to sub-filters
+    void mixStates(const std::vector<SubFilterState>& prev_states, 
+                   std::vector<SubFilterState>& mixed_states) 
+    {
+        int state_dim = prev_states[0].x.size();
+
+        // 1. Calculate normalization constants c_j
+        c = Pi.transpose() * mu;
+
+        // 2. Calculate mixing probabilities mu_{i|j}
+        for (int i = 0; i < num_models; ++i) {
+            for (int j = 0; j < num_models; ++j) {
+                mu_mix(i, j) = (Pi(i, j) * mu(i)) / c(j);
+            }
+        }
+
+        // 3. Calculate Mixed Initial States and Covariances
+        for (int j = 0; j < num_models; ++j) {
+            VectorXd x_bar = VectorXd::Zero(state_dim);
+            for (int i = 0; i < num_models; ++i) {
+                x_bar += mu_mix(i, j) * prev_states[i].x;
+            }
+
+            MatrixXd P_bar = MatrixXd::Zero(state_dim, state_dim);
+            for (int i = 0; i < num_models; ++i) {
+                VectorXd diff = prev_states[i].x - x_bar;
+                P_bar += mu_mix(i, j) * (prev_states[i].P + diff * diff.transpose());
+            }
+
+            mixed_states[j].x = x_bar;
+            mixed_states[j].P = P_bar;
+        }
+    }
+
+    // STEPS 3 & 4: Update Mode Probabilities and Collapse Output
+    void combineOutput(const std::vector<SubFilterState>& updated_states,
+                       VectorXd& global_x, MatrixXd& global_P) 
+    {
+        int state_dim = updated_states[0].x.size();
+        double total_c = 0.0;
+
+        // Step 3: Update Mode Probabilities using Likelihoods
+        for (int j = 0; j < num_models; ++j) {
+            mu(j) = updated_states[j].likelihood * c(j);
+            total_c += mu(j);
+        }
+        mu = mu / total_c; // Normalize probabilities to sum to 1.0
+
+        // Step 4: State Output Combination (Gaussian Collapse)
+        global_x = VectorXd::Zero(state_dim);
+        for (int j = 0; j < num_models; ++j) {
+            global_x += mu(j) * updated_states[j].x;
+        }
+
+        global_P = MatrixXd::Zero(state_dim, state_dim);
+        for (int j = 0; j < num_models; ++j) {
+            VectorXd diff = updated_states[j].x - global_x;
+            global_P += mu(j) * (updated_states[j].P + diff * diff.transpose());
+        }
+    }
+
+    VectorXd getModeProbabilities() const { return mu; }
+};
+
+```
+
 
 
 #  The Synthesis: IMM-CKF
@@ -2518,7 +2721,7 @@ With the Cubature Kalman Filter firmly established as our primary non-linear eng
 
 ## Handling highly non-linear maneuvers (e.g., transitioning from a linear trajectory to a sharp, high-G coordinated turn).
 
-## Complete algorithm walkthrough and mathematical proof of convergence
+## Complete algorithm walkthrough and mathematical proof of convergence.
 
 
 # Part VI: Architecture and Implementation {-}
@@ -3653,6 +3856,80 @@ In production $C++$ code, evaluating the Effective Sample Size is a one-line sum
 Once $\widehat{N}_{eff}$ drops below 50% of the total particle count, the software halts the tracking loop and triggers the Systematic Resampling algorithm (provided in Section 12.1), mathematically reviving the dead particles and preventing filter collapse.
 
 
+# O: Moment Matching Reduction of Gaussian Mixtures { - }
+
+In Chapter 14.2, we established that real-time IMM execution relies on collapsing a Gaussian sum of $r^2$ branches down to $r$ branches at the conclusion of every mixing cycle. This appendix provides the formal statistical proof demonstrating that collapsing a Gaussian mixture by matching its first two moments (Mean and Covariance) perfectly preserves the true mean and physical variance of the uncollapsed probability distribution.
+
+1. **Defining the Gaussian Mixture**
+
+Let $p(\mathbf{x})$ be a continuous probability density function represented exactly by a mixture of $N$ distinct Gaussian components:
+
+
+$$p(\mathbf{x}) = \sum_{i=1}^N w_i \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_i, P_i)$$
+
+Where the scalar weighting coefficients sum to unity: $\sum_{i=1}^N w_i = 1$.
+
+We seek to approximate this complex multi-modal distribution $p(\mathbf{x})$ with a single, uncollapsed global Gaussian distribution $q(\mathbf{x}) = \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_m, P_m)$.
+
+
+2. **Matching the First Moment (The Mean)**
+
+By the definition of the expected value, the true global mean ($\boldsymbol{\mu}_m$) of the composite mixture is:
+
+$$\boldsymbol{\mu}_m = E[\mathbf{x}] = \int_{-\infty}^{\infty} \mathbf{x} p(\mathbf{x}) d\mathbf{x}$$
+
+Substitute the Gaussian mixture definition into the integral:
+
+$$\boldsymbol{\mu}_m = \int_{-\infty}^{\infty} \mathbf{x} \left( \sum_{i=1}^N w_i \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_i, P_i) \right) d\mathbf{x}$$
+
+Because the integral of a finite sum is the sum of the integrals, we distribute the integration operator:
+
+$$\boldsymbol{\mu}_m = \sum_{i=1}^N w_i \left( \int_{-\infty}^{\infty} \mathbf{x} \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_i, P_i) d\mathbf{x} \right)$$
+
+Look at the inner integral: $\int \mathbf{x} \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_i, P_i) d\mathbf{x}$. This is the exact fundamental definition of the mean of the individual $i$-th Gaussian component, which evaluates identically to $\boldsymbol{\mu}_i$.
+
+Therefore, the first moment collapses to the exact weighted sum of the individual component means:
+
+$$\boldsymbol{\mu}_m = \sum_{i=1}^N w_i \boldsymbol{\mu}_i$$
+
+
+3. **Matching the Second Central Moment (The Covariance)**
+
+By the definition of the covariance matrix, the true global covariance ($P_m$) of the composite mixture is:
+
+$$P_m = E\left[ (\mathbf{x} - \boldsymbol{\mu}_m)(\mathbf{x} - \boldsymbol{\mu}_m)^T \right] = \int_{-\infty}^{\infty} (\mathbf{x} - \boldsymbol{\mu}_m)(\mathbf{x} - \boldsymbol{\mu}_m)^T p(\mathbf{x}) d\mathbf{x}$$
+
+Substitute the Gaussian mixture definition into the integral:
+
+$$P_m = \sum_{i=1}^N w_i \int_{-\infty}^{\infty} (\mathbf{x} - \boldsymbol{\mu}_m)(\mathbf{x} - \boldsymbol{\mu}_m)^T \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_i, P_i) d\mathbf{x}$$
+
+To evaluate the inner integral, we must re-center the quadratic term around the individual component mean $\boldsymbol{\mu}_i$ rather than the global mean $\boldsymbol{\mu}_m$. We execute the algebraic addition of zero ($-\boldsymbol{\mu}_i + \boldsymbol{\mu}_i$):
+
+$$\mathbf{x} - \boldsymbol{\mu}_m = (\mathbf{x} - \boldsymbol{\mu}_i) + (\boldsymbol{\mu}_i - \boldsymbol{\mu}_m)$$
+
+Let the mean deviation vector be defined as $\mathbf{d}_i = \boldsymbol{\mu}_i - \boldsymbol{\mu}_m$. Substitute this expansion back into the outer product:
+
+$$(\mathbf{x} - \boldsymbol{\mu}_m)(\mathbf{x} - \boldsymbol{\mu}_m)^T = \left[ (\mathbf{x} - \boldsymbol{\mu}_i) + \mathbf{d}_i \right] \left[ (\mathbf{x} - \boldsymbol{\mu}_i) + \mathbf{d}_i \right]^T$$
+
+$$= (\mathbf{x} - \boldsymbol{\mu}_i)(\mathbf{x} - \boldsymbol{\mu}_i)^T + (\mathbf{x} - \boldsymbol{\mu}_i)\mathbf{d}_i^T + \mathbf{d}_i(\mathbf{x} - \boldsymbol{\mu}_i)^T + \mathbf{d}_i \mathbf{d}_i^T$$
+
+We now integrate these four distinct terms individually against the component Gaussian density $\mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_i, P_i)$:
+
+
+ 1. **The First Term:** $\int (\mathbf{x} - \boldsymbol{\mu}_i)(\mathbf{x} - \boldsymbol{\mu}_i)^T \mathcal{N}_i d\mathbf{x}$ is the exact theoretical definition of component covariance, evaluating to $P_i$.
+ 2. **The Second Term:**  $\left[ \int (\mathbf{x} - \boldsymbol{\mu}_i) \mathcal{N}_i d\mathbf{x} \right] \mathbf{d}_i^T$. Because $\mathbf{x}$ is centered at $\boldsymbol{\mu}_i$, the expected value of its own deviation is strictly zero. The term vanishes ($= \mathbf{0}$).g
+ 3. **The Third Term:** Vanishes to zero by the exact same symmetry property ($= \mathbf{0}$).
+ 4. **The Fourth Term:** $\mathbf{d}_i \mathbf{d}_i^T \int \mathcal{N}_i d\mathbf{x}$. Because a probability density integrates to unity ($\int \mathcal{N}_i = 1$), this evaluates strictly to the outer product $\mathbf{d}_i \mathbf{d}_i^T$.
+
+Summing the unvanished terms across all $N$ weighted components yields the exact, definitive IMM covariance combination formula:
+
+
+
+$$P_m = \sum_{i=1}^N w_i \left[ P_i + (\boldsymbol{\mu}_i - \boldsymbol{\mu}_m)(\boldsymbol{\mu}_i - \boldsymbol{\mu}_m)^T \right]$$
+
+**Conclusion**: We have mathematically proven that approximating a complex Gaussian mixture by collapsing it to a single mean and covariance does not discard physical uncertainty. The inclusion of the spread-of-the-means outer product $(\boldsymbol{\mu}_i - \boldsymbol{\mu}_m)(\dots)^T$ perfectly captures the between-model variance, guaranteeing that the IMM estimator remains mathematically bounded and structurally stable across highly volatile target maneuvers.
+
+
 # Bibliography {-}
 
 ## Articles {-}
@@ -3672,24 +3949,27 @@ Once $\widehat{N}_{eff}$ drops below 50% of the total particle count, the softwa
 [6] Evensen, G. (1994). Sequential data assimilation with a nonlinear quasi-geostrophic model using Monte Carlo methods to forecast error statistics. Journal of Geophysical Research: Oceans, 99(C5), 10143-10162.
 (Note: The seminal paper where Geir Evensen originally invented and introduced the Ensemble Kalman Filter for high-dimensional oceanographic tracking).
 
+[7] For the Original IMM Proof: Blom, H. A., & Bar-Shalom, Y. (1988). The interacting multiple model algorithm for systems with Markovian switching coefficients. IEEE Transactions on Automatic Control, 33(8), 780-783
 
 ## Books {-}
 
-[7] Simon, D. (2006).
+[8] Simon, D. (2006).
 *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*.
 John Wiley & Sons.
 
 
-[8] **For NIS and Gating:** Bar-Shalom, Y., Li, X.R., Kirubarajan, T.: *Estimation with Applications to Tracking and Navigation*. (Chapter 5 directly covers Innovation Analysis, Validation Regions, and the Chi-Square statistics).
+[9] **For NIS and Gating:** Bar-Shalom, Y., Li, X.R., Kirubarajan, T.: *Estimation with Applications to Tracking and Navigation*. (Chapter 5 directly covers Innovation Analysis, Validation Regions, and the Chi-Square statistics).
 
 
-[9] **For Numerical Stability (Joseph Form):** Simon, D.: *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*. (Chapter 6 covers roundoff errors, Joseph Form, and U-D factorization).
+[10] **For Numerical Stability (Joseph Form):** Simon, D.: *Optimal State Estimation: Kalman, H∞, and Nonlinear Approaches*. (Chapter 6 covers roundoff errors, Joseph Form, and U-D factorization).
 
-[10] Uhlmann Jeffrey. Dynamic map building and localization: new theoretical foundations, Thesis (Ph.D.). University of Oxford, 1995 (cited on pages 283, 320).
+[11] Uhlmann Jeffrey. Dynamic map building and localization: new theoretical foundations, Thesis (Ph.D.). University of Oxford, 1995 (cited on pages 283, 320).
 
 
-[11] Doucet, A., de Freitas, N., & Gordon, N. (2001). Sequential Monte Carlo Methods in Practice. Springer.
+[12] Doucet, A., de Freitas, N., & Gordon, N. (2001). Sequential Monte Carlo Methods in Practice. Springer.
 (Note: The definitive textbook on particle filtering and Monte Carlo estimation).
 
-[12] Evensen, G. (2009). Data Assimilation: The Ensemble Kalman Filter (2nd ed.). Springer.
+[13] Evensen, G. (2009). Data Assimilation: The Ensemble Kalman Filter (2nd ed.). Springer.
 (Note: The primary textbook detailing the EnKF theory, specifically tailored for massively high-dimensional state spaces).
+
+[14] For Practical Aerospace Implementations: Bar-Shalom, Y., Li, X. R., & Kirubarajan, T. (2001). Estimation with Applications to Tracking and Navigation: Theory Algorithms and Software. Wiley-Interscience. (Specifically Chapter 11, which covers GPB algorithms, IMM derivation, and the Coordinated Turn models).
