@@ -31,7 +31,7 @@ Express the derivative of each state variable as a linear combination of the sta
 Suppose you are tracking a vehicle where you control (or model) its acceleration $a(t)$ as your input $u(t)$.
 - Let position be $p(t)$.
 - Let velocity be $v(t)$.
-- 
+
 The physical laws of kinematics state:
 
 - $\dot{p}(t) = v(t)$
