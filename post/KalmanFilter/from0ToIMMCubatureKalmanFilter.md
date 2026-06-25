@@ -2971,6 +2971,8 @@ public:
 
 # A:Derivation of the Spherical-Radial Cubature Rule {-}
 
+\fancyhead[L]{Appendix A:Derivation of the Spherical-Radial Cubature Rule}
+
 In Chapter 1.4, we introduced the Spherical-Radial Integration rule as the foundational mathematics that gives the Cubature Kalman Filter its name and its efficiency. This appendix provides the rigorous derivation proving how an infinite continuous integral collapses into exactly 2n deterministic points.
 
 **1. The Core Problem**
@@ -3049,6 +3051,8 @@ This deterministic calculation is what generates the **Cubature Points** ($\xi_i
 
 
 # B:The square root of a matrix and Cholesky decomposition {-}
+
+\fancyhead[L]{Appendix B:The square root of a matrix and Cholesky decomposition}
 
 **The square root of a matrix**
 
@@ -3275,6 +3279,8 @@ Using the Cholesky decomposition to find $P = L L^T$ is the premier choice for e
 
 # C:Expectation Algebra and Covariance Propagation  {-}
 
+\fancyhead[L]{Appendix C:Expectation Algebra and Covariance Propagation }
+
 To understand why the standard Kalman filter equations take the shape they do, one must understand how expectation (the expected value) acts as a mathematical operator.
 
 **1. Linearity of Expectation**
@@ -3336,6 +3342,8 @@ This proof forms the mathematical basis for the Prediction Step in every linear 
 
 
 # D:The Gaussian Multiplication Proof and the Origins of the Kalman Gain {-}
+
+\fancyhead[L]{Appendix D:The Gaussian Multiplication Proof and the Origins of the Kalman Gain }
 
 In Chapter 4, we stated that Bayes' Theorem operates by multiplying the Prior probability distribution (our kinematic prediction) by the Likelihood distribution (our sensor measurement). We also stated that because both of these are Gaussian (Normal) distributions, multiplying them magically produces a third, narrower Gaussian distribution representing our updated estimate (the Posterior).
 
@@ -3468,6 +3476,8 @@ $$K = P H^T (H P H^T + R)^{-1}$$
 
 # E:The Proof of Linear Observability {-}
 
+\fancyhead[L]{Appendix E:The Proof of Linear Observability }
+
 In Chapter 5.2, we stated that a discrete linear time-invariant (LTI) system is fully observable if its Observability Matrix ($\mathcal{O}$) has full column rank. Here is the formal mathematical proof.
 
 **1. Defining the System**
@@ -3543,6 +3553,8 @@ If the rank is strictly less than $n$, the system is underdetermined. The null s
 
 # F:What is the Pseudo-Inverse for Rectangular Matrices {-}
 
+\fancyhead[L]{Appendix F:What is the Pseudo-Inverse for Rectangular Matrices }
+
 For an $m \times n$ matrix $A$ to have a standard inverse, the very first and most absolute property it must have is that $m$ must equal $n$.
 
 In linear algebra, a true, two-sided inverse (where $A A^{-1} = I$ and $A^{-1} A = I$) only exists for square matrices.
@@ -3591,6 +3603,8 @@ For a wide matrix to have a right inverse, it must have Full Row Rank.
 
 
 # G:The Chapman-Kolmogorov Equation {-}
+
+\fancyhead[L]{Appendix G:The Chapman-Kolmogorov Equation }
 
 In Chapter 6.1, we introduced the Chapman-Kolmogorov Equation as the mathematical engine of the Kalman Filter's Prediction Step. It calculates the Prior probability distribution ($p(\mathbf{x}_k \mid \mathbf{Z}_{k-1})$) by pushing the previous state forward in time.
 
@@ -3645,6 +3659,8 @@ Mathematically, this equation is a continuous convolution. It takes the sharp, w
 
 
 # H:The Analytical Impossibility of Non-Linear Integration {-}
+
+\fancyhead[L]{Appendix H:The Analytical Impossibility of Non-Linear Integration }
 
 In Chapter 6.2, we claimed that the recursive Bayesian integration problem is analytically unsolvable for non-linear systems. To truly appreciate why the Cubature Kalman Filter is a mathematical necessity rather than just an alternative, one must look at the calculus of what happens when Gaussians collide with real-world geometry.
 
@@ -3707,6 +3723,9 @@ Because the exact math fails, tracking engineers must approximate.
 
 # I:Matrix Derivation of the Kalman Filter {-}
 
+\fancyhead[L]{Appendix I:Matrix Derivation of the Kalman Filter}
+
+
 This appendix provides the rigorous matrix calculus to derive the multidimensional Kalman Gain from the Minimum Mean Square Error (MMSE) cost function.
 
 1.   **Defining the Error Covariance**
@@ -3762,6 +3781,8 @@ This mathematically proves that this specific formulation of $K$ guarantees the 
 
 # J:Adaptive Covariance Matching {-}
 
+\fancyhead[L]{Appendix J:Adaptive Covariance Matching }
+
 When a filter diverges due to unmodeled target maneuvers, the static Process Noise matrix ($Q$) is no longer sufficient. This appendix details the covariance matching technique (originally established by Myers and Tapley) used to dynamically estimate $Q$ on the fly using a sliding window of recent innovations.
 
 1. The Statistical Basis of the Innovation
@@ -3814,6 +3835,8 @@ $$\hat{Q}_k \approx H^+ \left( \hat{C}_{\mathbf{y}_k} - R \right) (H^+)^T - F P_
 Because this raw calculation can sometimes produce negative diagonal values due to statistical noise in the sliding window, a production implementation will immediately zero out any negative eigenvalues, or run a max(0, val) check on the diagonals of $\hat{Q}_k$ to ensure it remains positive-definite before injecting it back into the Kalman Filter prediction loop.
 
 # K: EKF Derivations: Matrices and Jacobians {-}
+
+\fancyhead[L]{Appendix K: EKF Derivations: Matrices and Jacobians }
 
 This appendix provides the rigorous mathematical derivations necessary to implement the Extended Kalman Filter, covering both the discretization of continuous non-linear models and the calculus required for Polar-to-Cartesian radar tracking.
 
@@ -3879,6 +3902,9 @@ $$H_k = \begin{bmatrix}
 
 
 # L:Taylor Series Verification of the Unscented Transform {-}
+
+\fancyhead[L]{Appendix L:Taylor Series Verification of the Unscented Transform }
+
 
 In Chapter 10, we stated that the Unscented Transform (UT) captures the true mean and covariance of a non-linear Gaussian distribution better than the Extended Kalman Filter (EKF). This appendix provides the Taylor Series expansion proof demonstrating that the EKF truncates at the 1st order, while the UT successfully reconstructs the true distribution up to the 3rd order.
 
@@ -3951,6 +3977,8 @@ $$\bar{\mathbf{y}}_{UT} = g(\bar{\mathbf{x}}) + \frac{1}{2} \nabla^2 g P_{xx} + 
 
 # M:Proof of CKF Numerical Stability and Positive Definiteness {-}
 
+\fancyhead[L]{Appendix M:Proof of CKF Numerical Stability and Positive Definiteness}
+
 In Chapter 11.3, we asserted that the Cubature Kalman Filter (CKF) is mathematically immune to the covariance collapse that plagues the Unscented Kalman Filter (UKF). This appendix provides the linear algebra proof demonstrating why the CKF guarantees a positive-definite covariance matrix.
 
 1. **Definition of Positive Definiteness**
@@ -4007,6 +4035,8 @@ Adding a strictly positive number ($\mathbf{v}^T Q \mathbf{v}$) to a positive se
 $$\mathbf{v}^T P_{k|k-1} \mathbf{v} > 0$$
 
 # N:Particle Filter Degeneracy and Effective Sample Size {-}
+
+\fancyhead[L]{Appendix N:Particle Filter Degeneracy and Effective Sample Size}
 
 In Chapter 12.1, we introduced the Particle Filter (PF) and stated that without a Resampling step, the filter will inevitably collapse due to "Weight Degeneracy." This appendix provides the mathematical proof of why degeneracy occurs and derives the Effective Sample Size ($N_{eff}$) equation used by engineers to trigger the resampling algorithm.
 
@@ -4087,6 +4117,8 @@ Once $\widehat{N}_{eff}$ drops below 50% of the total particle count, the softwa
 
 # O: Moment Matching Reduction of Gaussian Mixtures { - }
 
+\fancyhead[L]{Appendix O: Moment Matching Reduction of Gaussian Mixtures}
+
 In Chapter 14.2, we established that real-time IMM execution relies on collapsing a Gaussian sum of $r^2$ branches down to $r$ branches at the conclusion of every mixing cycle. This appendix provides the formal statistical proof demonstrating that collapsing a Gaussian mixture by matching its first two moments (Mean and Covariance) perfectly preserves the true mean and physical variance of the uncollapsed probability distribution.
 
 1. **Defining the Gaussian Mixture**
@@ -4159,6 +4191,8 @@ $$P_m = \sum_{i=1}^N w_i \left[ P_i + (\boldsymbol{\mu}_i - \boldsymbol{\mu}_m)(
 **Conclusion**: We have mathematically proven that approximating a complex Gaussian mixture by collapsing it to a single mean and covariance does not discard physical uncertainty. The inclusion of the spread-of-the-means outer product $(\boldsymbol{\mu}_i - \boldsymbol{\mu}_m)(\dots)^T$ perfectly captures the between-model variance, guaranteeing that the IMM estimator remains mathematically bounded and structurally stable across highly volatile target maneuvers.
 
 # P: Proof of Acceleration Surrogate via Process Noise Inflation { - }
+
+\fancyhead[L]{Appendix P: Proof of Acceleration Surrogate via Process Noise Inflation }
 
 In Chapter 15, we established that deploying an 8-state Constant Velocity (CV) model with a massively inflated Process Noise Covariance matrix ($Q$) acts as a computationally efficient surrogate for an 11-state Constant Acceleration (CA) model. This appendix provides the mathematical proof demonstrating that inflating $Q$ drives the Kalman Gain to effectively bypass the linear kinematic memory, snapping the state directly to the raw measurement.
 
@@ -4235,6 +4269,7 @@ $$x_k \approx H^{-1}z_k$$
 
 # Q:Derivation of the Thermal Blooming Coefficient ($β_{th}$) { - }
 
+\fancyhead[L]{Appendix Q:Derivation of the Thermal Blooming Coefficient ($β_{th}$) }
 
 In Chapter 15, we stated that when a tracking payload toggles from a Visible CMOS sensor to an Infrared Uncooled Vanadium Oxide (VOx) microbolometer, the Measurement Covariance ($R_k$) must be dynamically inflated by a scalar ($\alpha$). This scalar incorporates the resolution disparity and the Thermal Blooming Coefficient (($β_{th}$)). This appendix mathematically models the physical heat smear of the sensor to derive $\beta_{th}$.
 
