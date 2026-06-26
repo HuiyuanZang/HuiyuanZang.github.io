@@ -2983,9 +2983,9 @@ Fusing a delayed bounding box—or a ground station command—with current 100Hz
 To acquire a delayed ground station lock, the system reads the incoming frame_index from the datalink, queries the Historical Frame Ringbuffer to extract the target's exact visual embedding from the past, interpolates the exact physical angles from the Gimbal and Autopilot Ringbuffers at that historical microsecond, initializes the IMM-CKF in the past, and "fast-forwards" the math to catch up to the live data stream.
 
 
-## The AI Perception Engine (YOLO & OSNet)
+## The AI Perception Engine: A 4-Stage Association Pipeline
 
-Before the IMM-CKF can track a target, the system must extract the target from the pixels. This is a two-stage Deep Learning pipeline.
+Before the IMM-CKF can track a target, the system must extract the target from the pixels and disambiguate it from similar objects. This forms a rigorous four-stage perception and data association pipeline.
 
 - **Stage 1: Detection (YOLO with NVM, P2, and TensorRT)**
   
@@ -3009,6 +3009,29 @@ It is critical to note that off-the-shelf YOLO and OSNet weights (trained on pub
 > Before passing a YOLO measurement to the IMM-CKF, the software calculates the Cosine Distance between the OSNet embedding of the new detection and the historically saved embedding of the tracked target. If the target crosses paths with another vehicle of the exact same make and model, the OSNet vector leverages subtle, target-specific texture fingerprints learned during retraining to reject the incorrect object.
 
 > But what if the visual fingerprints are mathematically identical? If two perfectly identical, pristine mass-produced drones cross paths, OSNet's cosine similarity will fail to distinguish them. At this critical juncture, the AI perception layer has failed, and the architecture must rely entirely on the IMM-CKF. The filter uses its predicted innovation covariance matrix ($S_k$) to calculate the Mahalanobis distance for each bounding box. The IMM-CKF isolates the correct target based purely on its spatial velocity vector, physical momentum, and trajectory history, proving why neural networks must always be fused with rigorous Newtonian kinematics
+
+
+-  **Stage 3: Extract Kinematic Mahalanobis Distance (IMM-CKF)**
+  
+While OSNet handles visual textures, the system simultaneously queries the IMM-CKF for its physical predictions. The filter uses its predicted innovation covariance matrix ($S_k$) to calculate the Mahalanobis distance ($D_m$) for each candidate bounding box. This distance evaluates how well each detection aligns with the target's predicted spatial velocity vector, physical momentum, and trajectory history—ensuring the neural networks are firmly tethered to rigorous Newtonian kinematics.
+
+- **Stage 4: Make the Final Decision via Dynamic Weighting**
+  
+To make the final decision on which bounding box to track, the architecture fuses the AI perception layer with the IMM-CKF kinematic layer using a dynamically weighted cost function.
+
+Because the OSNet Cosine Similarity ($S_{vis}$) is bounded between $[0, 1]$ and the IMM-CKF Mahalanobis distance ($D_m$) is bounded between $[0, \infty)$, we first map the distance into a Kinematic Similarity Score using the Gaussian exponential:
+
+
+$$S_{kin} = \exp(-0.5 \cdot D_m^2)$$
+
+The architecture then calculates the "Visual Ambiguity Margin"—the difference in similarity between the top two visual detections. If the margin is large, the target is visually unique, and the dynamic weight ($\alpha$) is set to 0.8 to heavily favor the AI. If the margin drops below 0.05 (e.g., the target merges with an identical swarm drone), the system detects visual ambiguity and drops $\alpha$ to 0.2.
+
+The final tracking decision is determined by evaluating every bounding box against the fusion equation:
+
+
+$$\text{Fusion Score} = \alpha S_{vis} + (1 - \alpha) S_{kin}$$
+
+By dynamically shifting the weight, the system seamlessly transitions from relying on visual textures to relying strictly on physical momentum whenever the neural networks become confused.
 
 ## The Vision-to-Kinematic Bridge
 
@@ -3078,10 +3101,16 @@ $$\mathbf{P}_{target} = \mathbf{P}_{UAV} + d \cdot \vec{r}_{NED}$$
 Because the IMM Likelihood function is an exponential decay based on innovation squared ($\Lambda_g \propto \exp(-\frac{1}{2} \nu_g^T S_g^{-1} \nu_g)$), the Ground Model's likelihood crashes toward zero. Simultaneously, the unconstrained Airborne Model correctly predicts the vertical ascent, maintaining a high likelihood ($\Lambda_a \approx 1$). The Markov mixing equations autonomously transfer the track probability from the ground to the air within milliseconds, seamlessly tracking the liftoff without dropping the lock.
 
 
+
+
+
+
+
+
 ## C++ Code: The Asynchronous Software Architecture
 
 
-The following C++ architecture demonstrates the high-level control loop running on the Jetson Orin NX. It explicitly shows the handoff between OSNet Cosine Similarity and the IMM-CKF Mahalanobis distance fallback when tracking identical swarm targets.
+The following C++ architecture demonstrates the high-level control loop running on the Jetson Orin NX. It explicitly shows the 4-stage data association pipeline, seamlessly fusing OSNet Cosine Similarity and IMM-CKF Mahalanobis distance via dynamic weighting.
 
 ```cpp
 #include <Eigen/Dense>
@@ -3133,21 +3162,16 @@ private:
 public:
     // Process a delayed lock command from the Ground Station
     void processGroundStationLock(uint32_t clicked_frame_index, const BoundingBox& clicked_box) {
-        // 1. Wind back time: Fetch the old frame data from the Historical Buffer
         HistoricalFrameData old_data = history_buf->getFrameByIndex(clicked_frame_index);
-        
-        // 2. Extract embedding of the exact target the operator clicked
         locked_target_features = reid->extractFeatures(old_data.nv12_surf, clicked_box);
         is_target_locked = true;
-
-        // 3. Fast-forward the IMM-CKF to the present time
         // imm_ckf->fastForwardTrack(old_data.timestamp_ms, ...);
     }
 
     // Main 60Hz Video Callback from V4L2 mmap (Pinned Memory)
     void processVideoFrame(uint32_t current_frame_index, NvBufSurface* nv12_surf, uint64_t timestamp_ms) 
     {
-        // 1. Fetch exact attitude for this specific frame from the telemetry buffers
+        // Geometric Bridge Initialization
         Eigen::Matrix3d R_gimbal = gimbal_buf->getAttitudeAt(timestamp_ms);
         Eigen::Matrix3d R_vehicle = autopilot_buf->getAttitudeAt(timestamp_ms);
         Eigen::Matrix3d R_mount; // Loaded statically from config
@@ -3155,7 +3179,7 @@ public:
         
         Eigen::Matrix3d R_total = R_vehicle * R_mount * R_gimbal;
 
-        // 2. AI Stage: TensorRT YOLO Detection and OSNet Extraction
+        // Stage 1 & 2: TensorRT YOLO Detection and OSNet Extraction
         std::vector<BoundingBox> detections = yolo->runInference(nv12_surf);
         std::vector<FeatureEmbedding> embeddings;
         
@@ -3163,64 +3187,71 @@ public:
             embeddings.push_back(reid->extractFeatures(nv12_surf, det));
         }
 
-        // 3. Save all data to the Historical Ringbuffer for future Ground Station lookups
         history_buf->push(timestamp_ms, current_frame_index, nv12_surf, detections, embeddings);
-
-        // 4. Encode & Stream Frame Down to Ground Station (Bypassing GStreamer)
         h265_streamer->encodeAndStreamUDP(nv12_surf, timestamp_ms);
 
-        if (!is_target_locked) return; // Awaiting Ground Station command...
+        if (!is_target_locked) return; 
 
-        // 5. Data Association & Disambiguation (OSNet + Kinematic Fallback)
+        // Stage 3 & 4: Data Association via Dynamic Weighting (OSNet + IMM-CKF)
         BoundingBox best_match;
-        float best_similarity = -1.0f;
+        int best_match_idx = -1;
+        float highest_fusion_score = -1.0f;
         bool match_found = false;
 
-        std::vector<BoundingBox> candidate_boxes;
+        float top1_sim = 0.0f, top2_sim = 0.0f;
+        std::vector<float> visual_scores(detections.size());
+        
+        for (size_t i = 0; i < detections.size(); ++i) {
+            float sim = calculateCosineSimilarity(locked_target_features, embeddings[i]);
+            visual_scores[i] = sim;
+            if (sim > top1_sim) {
+                top2_sim = top1_sim;
+                top1_sim = sim;
+            } else if (sim > top2_sim) {
+                top2_sim = sim;
+            }
+        }
+
+        float visual_margin = top1_sim - top2_sim; 
+        float alpha = 0.8f; // Default baseline: 80% vision, 20% kinematics
+        
+        if (visual_margin < 0.05f) {
+            // Visual ambiguity is HIGH (identical targets). Rely on physical momentum!
+            alpha = 0.2f; 
+        }
 
         for (size_t i = 0; i < detections.size(); ++i) {
-            float similarity = calculateCosineSimilarity(locked_target_features, embeddings[i]);
+            if (visual_scores[i] < 0.4f) continue; // Hard gate out completely wrong objects
+
+            Eigen::VectorXd z_cand(4);
+            z_cand << detections[i].x, detections[i].y, detections[i].w, detections[i].h;
             
-            // Reject visually distinct objects using a strict similarity threshold
-            if (similarity > 0.75f) {
-                candidate_boxes.push_back(detections[i]);
-                
-                if (similarity > best_similarity) {
-                    best_similarity = similarity;
-                    best_match = detections[i];
-                    match_found = true;
-                    // Slowly update locked features to handle lighting/rotation changes
-                    locked_target_features.vec = 0.9 * locked_target_features.vec + 0.1 * embeddings[i].vec;
-                }
+            // Convert Mahalanobis distance to a [0,1] kinematic similarity score
+            double m_dist = imm_ckf->calculateMahalanobisDistance(z_cand);
+            float kinematic_score = std::exp(-0.5 * m_dist * m_dist); 
+
+            // Calculate final dynamically weighted decision score
+            float fusion_score = (alpha * visual_scores[i]) + ((1.0f - alpha) * kinematic_score);
+
+            if (fusion_score > highest_fusion_score) {
+                highest_fusion_score = fusion_score;
+                best_match = detections[i];
+                best_match_idx = i;
+                match_found = true;
             }
         }
 
-        // KINEMATIC FALLBACK: If multiple objects have almost identical fingerprints (e.g., twin drones)
-        if (candidate_boxes.size() > 1 && best_similarity > 0.95f) {
-            double min_mahalanobis = 1e9;
-            for (const auto& candidate : candidate_boxes) {
-                Eigen::VectorXd z_cand(4);
-                z_cand << candidate.x, candidate.y, candidate.w, candidate.h;
-                
-                // Ask the IMM-CKF to calculate the Mahalanobis distance based on momentum
-                double m_dist = imm_ckf->calculateMahalanobisDistance(z_cand);
-                
-                if (m_dist < min_mahalanobis) {
-                    min_mahalanobis = m_dist;
-                    best_match = candidate; // Kinematics override visual similarity!
-                }
-            }
-        }
-
-        // 6. Kinematic Tracking: Execute IMM-CKF Loop
+        // Execute IMM-CKF Tracking Loop
         Eigen::VectorXd global_x;
         Eigen::MatrixXd global_P;
         
         if (match_found) {
+            // Update locked features using the WINNING dynamically-weighted embedding
+            locked_target_features.vec = 0.9 * locked_target_features.vec + 0.1 * embeddings[best_match_idx].vec;
+
             Eigen::VectorXd z_meas(4);
             z_meas << best_match.x, best_match.y, best_match.w, best_match.h;
             
-            // IMM-CKF handles High-G maneuvers and projects 2D to 3D internally
             imm_ckf->step(z_meas, R_total, focal_length, global_x, global_P);
         } else {
             // Target occluded or lost. Coast using IMM-CKF prediction only.
